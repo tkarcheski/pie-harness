@@ -1,0 +1,16 @@
+[Unit]
+Description=PIE local digital-product studio worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pie-harness
+ExecStart=/usr/bin/env node apps/studio/cli.mjs %h/.local/state/pie-studio serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=920
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

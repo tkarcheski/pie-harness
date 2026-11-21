@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "mode": "fixture",
+  "connectorsEnabled": false,
+  "node": "example-worker",
+  "heartbeatMs": 30000,
+  "leaseMs": 15000
+}
