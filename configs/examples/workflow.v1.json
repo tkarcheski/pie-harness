@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "mode": "simulation",
+  "workflowId": "sample-resale",
+  "steps": [
+    "evidence-intake",
+    "draft-listing"
+  ],
+  "retryLimit": 1,
+  "deadlineSeconds": 600
+}

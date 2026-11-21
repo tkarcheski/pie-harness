@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "mode": "simulation",
+  "experimentId": "sample-experiment",
+  "opportunityId": "sample-opportunity",
+  "hypothesis": "A mock buyer replies to the sample offer.",
+  "stopCondition": "Stop after two mock conversations.",
+  "ownerTimeCapMinutes": 30
+}

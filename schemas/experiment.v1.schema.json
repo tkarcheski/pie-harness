@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "experimentId",
+    "opportunityId",
+    "hypothesis",
+    "stopCondition",
+    "ownerTimeCapMinutes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "simulation",
+        "disabled"
+      ]
+    },
+    "experimentId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]+$"
+    },
+    "opportunityId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]+$"
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stopCondition": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ownerTimeCapMinutes": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

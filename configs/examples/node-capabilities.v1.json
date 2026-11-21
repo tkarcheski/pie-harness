@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "mode": "simulation",
+  "nodeId": "sample-node",
+  "capabilities": [
+    "text-inference"
+  ],
+  "runtime": "sample-runtime"
+}

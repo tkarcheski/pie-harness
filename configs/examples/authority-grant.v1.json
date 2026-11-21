@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "mode": "simulation",
+  "principal": "sample-owner",
+  "accountScope": "sample-account",
+  "allowedActions": [
+    "observe"
+  ],
+  "expiresAt": "2099-01-01T00:00:00Z"
+}

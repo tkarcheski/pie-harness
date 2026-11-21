@@ -1,0 +1,10 @@
+name: Feature request
+description: Submit a sanitized feature request.
+body:
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Describe the use case, scoped behavior, and acceptance criteria.
+    validations:
+      required: true

@@ -1,0 +1,10 @@
+name: Bug report
+description: Submit a sanitized bug report.
+body:
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Describe the failure, synthetic reproduction, and expected result.
+    validations:
+      required: true
