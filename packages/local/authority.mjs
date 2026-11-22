@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { insert, record, requireValue } from './store.mjs';
+import { budgetGate, raiseAlert, resolveAlerts } from './operations.mjs';
 
 const refPattern = /^secret-ref:[a-zA-Z0-9._/-]+$/;
 const exact = (object, keys) =>
@@ -76,16 +77,20 @@ export class Accounts {
         'Unavailable'
       );
       requireValue((await verify(secret)) === true, 'Unavailable');
+      this.store.change((s, time) =>
+        resolveAlerts(s, owner, id, time, ['connection'])
+      );
       return true;
     } catch {
-      this.store.change((state, time) =>
+      this.store.change((state, time) => {
+        raiseAlert(state, owner, 'connection', id, time);
         state.ownerTasks.push({
           owner,
           account: id,
           time,
           reason: 'Check connection, grant and secret reference'
-        })
-      );
+        });
+      });
       return false;
     }
   }
@@ -144,19 +149,31 @@ const boundKeys = [
   'currency',
   'policyVersion'
 ];
-function outcome(state, owner, now, request, decision, reason) {
-  const event = { owner, time: now, decision, reason, type: 'authorization' };
+function outcome(state, owner, now, request, decision, reason, task) {
+  const event = {
+    owner,
+    time: now,
+    decision,
+    reason,
+    type: 'authorization',
+    ...(task && { task: task.id, attempt: task.lease.attempt })
+  };
   // Store only validated request attributes. Invalid proposals get a reason only.
   if (request)
     Object.assign(
       event,
-      Object.fromEntries(boundKeys.map((key) => [key, request[key]]))
+      Object.fromEntries(
+        ['actor', 'account', 'currency', 'amountMinor'].map((key) => [
+          key,
+          request[key]
+        ])
+      )
     );
   state.events.push(event);
   return { decision, reason };
 }
 
-export function authorize(state, now, owner, r) {
+export function authorize(state, now, owner, r, task) {
   let account;
   try {
     account = validateRequest(state, owner, r);
@@ -167,11 +184,12 @@ export function authorize(state, now, owner, r) {
       now,
       null,
       'deny',
-      'Invalid or cross-scope proposal'
+      'Invalid or cross-scope proposal',
+      task
     );
   }
   const decide = (decision, reason) =>
-    outcome(state, owner, now, r, decision, reason);
+    outcome(state, owner, now, r, decision, reason, task);
   if (
     state.pauses.includes('*') ||
     state.pauses.includes(owner) ||
@@ -191,10 +209,6 @@ export function authorize(state, now, owner, r) {
       a.expiresAt > now &&
       boundKeys.every((k) => a.request[k] === r[k])
   );
-  if (approval) {
-    approval.used = true;
-    return decide('allow', 'Exact owner approval');
-  }
   const grants = state.grants.filter(
     (g) =>
       g.owner === owner &&
@@ -205,10 +219,17 @@ export function authorize(state, now, owner, r) {
       g.validFrom <= now &&
       now < g.expiresAt
   );
-  if (!grants.length) return decide('deny', 'No matching standing grant');
-  if (grants.some((g) => r.amountMinor <= g.limitMinor))
-    return decide('allow', 'Within standing limit');
-  return decide('require-owner', 'Outside standing limit');
+  if (!approval && !grants.length)
+    return decide('deny', 'No matching standing grant');
+  if (!approval && !grants.some((g) => r.amountMinor <= g.limitMinor))
+    return decide('require-owner', 'Outside standing limit');
+  const budgetReason = task && budgetGate(state, task, r);
+  if (budgetReason) return decide('require-owner', budgetReason);
+  if (approval) approval.used = true;
+  return decide(
+    'allow',
+    approval ? 'Exact owner approval' : 'Within standing limit'
+  );
 }
 
 // This is the trusted owner-side API. The worker interface exposes no grant,

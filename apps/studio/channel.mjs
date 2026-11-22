@@ -1,5 +1,6 @@
 import { appendText } from '../../packages/local/text-bus.mjs';
 import fs from 'node:fs';
+import { restoreTaskMetadata } from '../../packages/local/operations.mjs';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Store, insert, requireValue } from '../../packages/local/store.mjs';
@@ -45,7 +46,8 @@ function addJob(s, now, kind, input, model) {
     actor: c.actor,
     capability: 'studio',
     budgetRef: 'local-inference-only',
-    retryLimit: 1
+    retryLimit: 1,
+    deadline: now + jobLimit
   });
   c.jobs[task.id] = { kind, input, model, deadline: now + jobLimit };
   appendText(c, {
@@ -77,6 +79,8 @@ export class Studio {
     );
     this.store = new Store(this.file, clock);
     this.engine = new Execution(this.store, timings);
+    if (this.store.read().studio)
+      this.store.change((s) => restoreTaskMetadata(s, s.studio.jobs));
   }
 
   init({ topic, audience, model = 'fixture' }) {
