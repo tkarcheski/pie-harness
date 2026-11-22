@@ -1,6 +1,6 @@
 import { incomingText, transcript } from '../../packages/local/text-bus.mjs';
 import {
-  DiscordTransport,
+  DiscordAgentTeam,
   connectDiscord,
   syncDiscord,
   reconcileDiscord
@@ -211,15 +211,26 @@ try {
         'discord-serve'
       ].includes(command)
     ) {
-      const bridge = new DiscordTransport({
-        token: process.env.PIE_DISCORD_BOT_TOKEN,
-        guild: process.env.PIE_DISCORD_GUILD_ID,
-        channel: process.env.PIE_DISCORD_CHANNEL_ID,
-        operators: (process.env.PIE_DISCORD_OPERATOR_IDS || '')
-          .split(',')
-          .map((x) => x.trim())
-          .filter(Boolean)
-      });
+      const bridge = new DiscordAgentTeam(
+        {
+          token: process.env.PIE_DISCORD_BOT_TOKEN,
+          guild: process.env.PIE_DISCORD_GUILD_ID,
+          channel: process.env.PIE_DISCORD_CHANNEL_ID,
+          operators: (process.env.PIE_DISCORD_OPERATOR_IDS || '')
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean)
+        },
+        {
+          product: process.env.PIE_DISCORD_PRODUCT_TOKEN,
+          support: process.env.PIE_DISCORD_SUPPORT_TOKEN
+        },
+        {
+          operations: process.env.PIE_DISCORD_OPERATIONS_APP_ID,
+          product: process.env.PIE_DISCORD_PRODUCT_APP_ID,
+          support: process.env.PIE_DISCORD_SUPPORT_APP_ID
+        }
+      );
       if (command === 'discord-check') result = await bridge.verify();
       if (command === 'discord-connect')
         result = await connectDiscord(studio, bridge);

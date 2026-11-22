@@ -5,6 +5,17 @@ const snowflake = (v) => typeof v === 'string' && /^[1-9][0-9]{15,19}$/.test(v);
 const now = () => Date.now();
 const marker = (id) => '[pie:' + id + ']';
 const waitUntil = (duration) => now() + Math.ceil(duration * 1000);
+const specialistSenders = new Map([
+  ['brand-worker', 'product'],
+  ['product-worker', 'product'],
+  ['campaign-worker', 'product'],
+  ['reply-worker', 'support']
+]);
+
+function sameAgents(left = {}, right = {}) {
+  return ['product', 'support'].every((role) => left[role] === right[role]);
+}
+
 export class DiscordTransport {
   constructor({ token, guild, channel, operators = [], request = fetch }) {
     requireValue(
@@ -107,6 +118,59 @@ export class DiscordTransport {
   }
 }
 
+// The coordinator reads each human message once. Specialists share its durable
+// outbox and publish their assigned messages using their own bot identities.
+export class DiscordAgentTeam extends DiscordTransport {
+  constructor(options, tokens, expectedIds = {}) {
+    super(options);
+    this.specialists = new Map();
+    this.expectedIds = expectedIds;
+    for (const role of ['product', 'support']) {
+      if (tokens[role])
+        this.specialists.set(
+          role,
+          new DiscordTransport({ ...options, token: tokens[role] })
+        );
+      requireValue(
+        !expectedIds[role] || tokens[role],
+        'Missing token for ' + role
+      );
+    }
+  }
+
+  async verify() {
+    const coordinator = await super.verify();
+    const seen = new Set([coordinator.bot]);
+    requireValue(
+      !this.expectedIds.operations ||
+        this.expectedIds.operations === coordinator.bot,
+      'Token belongs to a different operations application'
+    );
+    const agents = {};
+    for (const [role, transport] of this.specialists) {
+      const { bot } = await transport.verify();
+      requireValue(
+        !seen.has(bot),
+        'Each Discord application must have a distinct bot'
+      );
+      requireValue(
+        !this.expectedIds[role] || this.expectedIds[role] === bot,
+        'Token belongs to a different ' + role + ' application'
+      );
+      seen.add(bot);
+      agents[role] = bot;
+    }
+    return { ...coordinator, agents };
+  }
+
+  send(message) {
+    const specialist = this.specialists.get(
+      specialistSenders.get(message.sender)
+    );
+    return specialist ? specialist.send(message) : super.send(message);
+  }
+}
+
 export async function connectDiscord(studio, transport) {
   const verified = await transport.verify();
   return studio.store.change((s) => {
@@ -119,6 +183,18 @@ export async function connectDiscord(studio, transport) {
           old.bot === verified.bot,
         'Existing bridge has a different destination'
       );
+      for (const [role, bot] of Object.entries(old.agents || {}))
+        requireValue(
+          verified.agents?.[role] === bot,
+          'Configured agent identity changed: ' + role
+        );
+      if (!sameAgents(old.agents, verified.agents)) {
+        requireValue(
+          !old.intent,
+          'Reconcile the pending send before adding an agent'
+        );
+        old.agents = verified.agents;
+      }
       return { guild: old.guild, channel: old.channel, connected: true };
     }
     // Start at activation. No pre-existing local notes or channel history are broadcast.
@@ -126,6 +202,7 @@ export async function connectDiscord(studio, transport) {
       guild: verified.guild,
       channel: verified.channel,
       bot: verified.bot,
+      agents: verified.agents || {},
       after: verified.latest || '0',
       index: (c.transcript || []).length,
       until: 0,
@@ -152,6 +229,10 @@ export async function syncDiscord(studio, transport) {
   try {
     const verified = await transport.verify();
     requireValue(verified.bot === binding.bot, 'Discord bot identity changed');
+    requireValue(
+      sameAgents(binding.agents, verified.agents),
+      'Connect and verify all configured agents first'
+    );
     const page = await transport.receive(binding.after);
     const messages = page.data
       .filter((m) => snowflake(m.id))
@@ -167,8 +248,9 @@ export async function syncDiscord(studio, transport) {
           'Message scope mismatch'
         );
         if (
-          m.author?.id === b.bot &&
           b.intent &&
+          m.author?.id === (b.intent.bot || b.bot) &&
+          !m.webhook_id &&
           m.content?.endsWith(marker(b.intent.id))
         ) {
           b.index++;
@@ -202,11 +284,16 @@ export async function syncDiscord(studio, transport) {
         b = c.discord,
         rows = c.transcript || [];
       if (b.intent || b.until > now()) return null;
+      requireValue(
+        sameAgents(b.agents, verified.agents),
+        'Agent configuration changed during sync'
+      );
       while (b.index < rows.length && rows[b.index].origin !== 'local')
         b.index++;
       if (b.index >= rows.length) return null;
       const m = rows[b.index];
-      b.intent = { id: m.id, since: now() };
+      const bot = b.agents?.[specialistSenders.get(m.sender)] || b.bot;
+      b.intent = { id: m.id, bot, since: now() };
       return m;
     });
     if (!candidate)
