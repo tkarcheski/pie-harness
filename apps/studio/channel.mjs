@@ -445,8 +445,14 @@ export class Studio {
       if (!fs.existsSync(target)) {
         const temp = path.join(dir, randomUUID() + '.tmp');
         try {
-          fs.writeFileSync(temp, p.draft.content, { flag: 'wx', mode: 0o600 });
-          fs.linkSync(temp, target);
+          fs.writeFileSync(temp, p.draft.content, {
+            flag: 'wx',
+            mode: 0o600,
+            flush: true
+          });
+          // BEGIN IMMEDIATE serializes all studio deliverers. Publish the
+          // completed file atomically on volumes that prohibit hard links.
+          fs.renameSync(temp, target);
         } finally {
           if (fs.existsSync(temp)) fs.unlinkSync(temp);
         }
