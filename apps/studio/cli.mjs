@@ -11,6 +11,7 @@ import { health, maintain } from './maintenance.mjs';
 import { setTimeout as wait } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { Studio } from './channel.mjs';
+import { ownerCommand } from '../../packages/local/operations.mjs';
 
 const help = `PIE digital-product studio
   node apps/studio/cli.mjs STATE_DIRECTORY COMMAND [input.json|-]
@@ -29,6 +30,7 @@ const help = `PIE digital-product studio
   deliver    Materialize the purchased Markdown edition and local mail envelope.
   settle     Compare paid amount less fees/refunds with a payout observation.
   status     Show queue, nodes, catalog, feed, inbox, outbox and orders.
+  owner      Run a local owner operation named in the JSON command field.
   export     Write brand artwork, feed and RFC 5322 messages to the state directory.
   health     Check storage, VM resources, node health, and interventions.
   maintain   Create and verify a consistent rolling database snapshot.
@@ -189,7 +191,14 @@ try {
       initialize: ['init', 'demo'].includes(command)
     });
     let result;
-    if (command === 'demo') result = await demo(studio);
+    if (command === 'owner') {
+      const c = studio.store.read().studio;
+      if (!c) throw Error('Initialize the studio first');
+      result = ownerCommand(studio.engine, c.owner, input.command, {
+        ...input,
+        business: c.business
+      });
+    } else if (command === 'demo') result = await demo(studio);
     else if (command === 'say')
       result = studio.store.change((s, now) =>
         incomingText(

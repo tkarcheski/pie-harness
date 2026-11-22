@@ -15,7 +15,237 @@ import {
   DevelopmentSecrets
 } from '../packages/local/authority.mjs';
 import { Execution } from '../packages/local/execution.mjs';
+import {
+  setBudget,
+  auditView,
+  ownerCommand
+} from '../packages/local/operations.mjs';
 import { sampleDomain } from '../apps/control-plane/local.mjs';
+
+test('PIE-008 pins a reservation across connections and retries the same logical effect with the same key', async (t) => {
+  const f = fixture(t),
+    owner = f.scope.owner;
+  const limit = {
+    business: f.scope.business,
+    ref: 'sample-budget',
+    currency: 'USD',
+    limitMinor: 20
+  };
+  setBudget(f.store, owner, limit);
+  f.policy.grant(owner, { ...f.grant, limitMinor: 20 });
+  const peerStore = new Store(f.filename, () => f.clock.now);
+  try {
+    const peer = new Execution(peerStore, config);
+    const worker2 = peer.enroll(owner);
+    peer.heartbeat(worker2, true);
+    peer.probe(owner, worker2.node, f.probe);
+    const a = f.task({ retryLimit: 1 }),
+      b = f.task();
+    const lease1 = { ...f.worker, fence: f.execution.claim(f.worker).fence };
+    const lease2 = { ...worker2, fence: peer.claim(worker2).fence };
+    const payload = 'synthetic payload',
+      seen = [];
+    let reservedDuringSend, competingDecision;
+    await assert.rejects(
+      f.execution.dispatchEffect(a.id, lease1, f.request, 'changed', {
+        send() {
+          throw Error('unexpected dispatch');
+        }
+      }),
+      /digest/i
+    );
+    const first = await f.execution.dispatchEffect(
+      a.id,
+      lease1,
+      f.request,
+      payload,
+      {
+        send(_bytes, context) {
+          seen.push(context);
+          reservedDuringSend = auditView(peerStore, owner).budgets[0]
+            .reservedMinor;
+          competingDecision = peer.beginEffect(
+            b.id,
+            lease2,
+            f.request
+          ).decision;
+          throw Error('synthetic uncertain send');
+        }
+      }
+    );
+    assert.equal(first.status, 'pending');
+    assert.equal(reservedDuringSend, 15);
+    assert.equal(competingDecision, 'require-owner');
+    assert.throws(
+      () => setBudget(peerStore, owner, { ...limit, limitMinor: 14 }),
+      /reservations/
+    );
+    assert.throws(
+      () =>
+        ownerCommand(peer, owner, 'reconcile', {
+          task: a.id,
+          confirmed: false,
+          evidence: 'verified absent',
+          intent: 'old'
+        }),
+      /intent changed/
+    );
+    assert.equal(f.execution.claim(f.worker), null);
+    f.execution.reconcile(
+      owner,
+      a.id,
+      false,
+      'receipt lookup verified absent',
+      first.intent
+    );
+    assert.equal(auditView(peerStore, owner).budgets[0].availableMinor, 20);
+    const retry = { ...f.worker, fence: f.execution.claim(f.worker).fence };
+    const result = await f.execution.dispatchEffect(
+      a.id,
+      retry,
+      f.request,
+      payload,
+      {
+        send(bytes, ctx) {
+          assert.equal(bytes.toString(), payload);
+          seen.push(ctx);
+          return 'synthetic receipt';
+        }
+      }
+    );
+    assert.equal(result.status, 'confirmed');
+    assert.equal(seen[0].idempotencyKey, seen[1].idempotencyKey);
+    assert.notEqual(seen[0].intent, seen[1].intent);
+    const ledger = auditView(peerStore, owner);
+    assert.deepEqual(ledger.costsMinorByCurrency, { USD: 15 });
+    assert.equal(ledger.budgets[0].reservedMinor, 0);
+  } finally {
+    peerStore.close();
+  }
+});
+
+test('PIE-009 redacts audit details, joins attempt and intent, deduplicates alerts and time entries', (t) => {
+  const f = fixture(t),
+    owner = f.scope.owner;
+  const a = f.task(),
+    claim = f.execution.claim(f.worker),
+    w = { ...f.worker, fence: claim.fence };
+  const request = { ...f.request, object: 'sensitive-target-string' };
+  f.policy.approve(owner, request, 250);
+  setBudget(f.store, owner, {
+    business: f.scope.business,
+    ref: 'sample-budget',
+    currency: 'USD',
+    limitMinor: 0
+  });
+  for (let i = 0; i < 2; i++)
+    assert.equal(
+      f.execution.beginEffect(a.id, w, request).decision,
+      'require-owner'
+    );
+  let report = auditView(f.store, owner);
+  assert.equal(report.alerts.length, 1);
+  assert.equal(report.alerts[0].occurrences, 2);
+  assert.equal(
+    ownerCommand(f.execution, owner, 'ack', { id: report.alerts[0].id }).status,
+    'acknowledged'
+  );
+  for (let i = 0; i < 2; i++)
+    ownerCommand(f.execution, owner, 'time', {
+      task: a.id,
+      minutes: 3,
+      entryId: 'time-1'
+    });
+  assert.throws(
+    () =>
+      ownerCommand(f.execution, owner, 'time', {
+        task: a.id,
+        minutes: 4,
+        entryId: 'time-1'
+      }),
+    /already used/
+  );
+  setBudget(f.store, owner, {
+    business: f.scope.business,
+    ref: 'sample-budget',
+    currency: 'USD',
+    limitMinor: 20
+  });
+  const intent = f.execution.beginEffect(a.id, w, request).intent;
+  assert.ok(intent, 'budget refusal must preserve the unspent exact approval');
+  f.execution.reconcile(owner, a.id, true, 'private-receipt-body', intent);
+  report = auditView(f.store, owner);
+  assert.equal(report.alerts[0].status, 'resolved');
+  assert.equal(report.ownerMinutes, 3);
+  assert.deepEqual(report.costsMinorByCurrency, { USD: 15 });
+  assert.ok(
+    report.events.some(
+      (e) =>
+        e.type === 'effect-confirmed' &&
+        e.task === a.id &&
+        e.attempt === claim.attempt &&
+        e.intent === intent
+    )
+  );
+  assert.doesNotMatch(
+    JSON.stringify(report),
+    /sensitive-target-string|private-receipt-body|secret-ref/
+  );
+  assert.equal(
+    auditView(f.store, f.store.create('owner', null).id).events.length,
+    0
+  );
+});
+
+test('PIE-010 owner ranking changes dispatch, retry honors the original deadline, and cancel preserves uncertain effects', (t) => {
+  const f = fixture(t),
+    owner = f.scope.owner,
+    engine = f.execution;
+  const first = f.task(),
+    promoted = f.task({ deadline: 180 });
+  const child = f.task({ dependsOn: [promoted.id] });
+  engine.rank(owner, promoted.id, 10);
+  assert.equal(engine.inspect(owner).tasks[0].id, promoted.id);
+  const claim = engine.claim(f.worker);
+  assert.equal(claim.task, promoted.id);
+  engine.fail(
+    promoted.id,
+    { ...f.worker, fence: claim.fence },
+    'private adapter failure'
+  );
+  assert.equal(
+    engine.inspect(owner).tasks.find((x) => x.id === child.id).status,
+    'blocked'
+  );
+  assert.throws(() => engine.retry(owner, promoted.id, 5), /one additional/);
+  f.policy.pause(owner);
+  assert.throws(() => engine.retry(owner, promoted.id, 2), /policy/);
+  assert.equal(engine.claim(f.worker), null);
+  f.policy.resume(owner);
+  engine.retry(owner, promoted.id, 2);
+  assert.equal(
+    engine.inspect(owner).tasks.find((x) => x.id === child.id).waitingReason,
+    'Waiting for prerequisites'
+  );
+  f.clock.now = 180;
+  assert.equal(engine.inspect(owner).tasks[0].status, 'failed');
+  assert.throws(() => engine.retry(owner, promoted.id, 2), /policy/);
+  engine.heartbeat(f.worker, true);
+  const next = engine.claim(f.worker);
+  assert.equal(next.task, first.id);
+  f.policy.grant(owner, { ...f.grant, limitMinor: 20 });
+  const intent = engine.beginEffect(
+    first.id,
+    { ...f.worker, fence: next.fence },
+    f.request
+  ).intent;
+  assert.equal(engine.cancel(owner, first.id).status, 'needs-reconciliation');
+  engine.reconcile(owner, first.id, false, 'verified absent', intent);
+  assert.equal(
+    engine.inspect(owner).tasks.find((x) => x.id === first.id).status,
+    'canceled'
+  );
+});
 
 const config = { heartbeatMs: 10, leaseMs: 5 };
 function directory(t) {
@@ -33,6 +263,12 @@ function fixture(t) {
     fs.rmSync(dir, { recursive: true, force: true });
   });
   const scope = sampleDomain(store);
+  setBudget(store, scope.owner, {
+    business: scope.business,
+    ref: 'sample-budget',
+    currency: 'USD',
+    limitMinor: 100
+  });
   const execution = new Execution(store, config);
   const worker = execution.enroll(scope.owner);
   const probe = {
