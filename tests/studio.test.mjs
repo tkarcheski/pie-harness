@@ -92,7 +92,11 @@ test('approval gates, retries, retirement and idempotent digital fulfillment', a
     duplicate: true
   });
   assert.throws(() => studio.order({ ...order, buyer: 'other' }), /replay/);
+  const hardLink = t.mock.method(fs, 'linkSync', () => {
+    throw Object.assign(new Error('Hard links unavailable'), { code: 'EPERM' });
+  });
   const firstFile = studio.deliver({ reference: order.reference }).file;
+  hardLink.mock.restore();
   assert.equal(studio.deliver({ reference: order.reference }).file, firstFile);
   assert.equal(studio.status().outbox.length, 1);
   assert.equal(
@@ -111,6 +115,9 @@ test('approval gates, retries, retirement and idempotent digital fulfillment', a
     /active/
   );
   assert.equal(studio.deliver({ reference: order.reference }).file, firstFile);
+  fs.writeFileSync(firstFile, 'different content');
+  assert.throws(() => studio.deliver({ reference: order.reference }), /differs/);
+  assert.equal(fs.readFileSync(firstFile, 'utf8'), 'different content');
 });
 
 test('scheduled local campaigns, event deduplication and owner escalation', async (t) => {
