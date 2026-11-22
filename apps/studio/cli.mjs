@@ -12,9 +12,11 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { Studio } from './channel.mjs';
 import { ownerCommand } from '../../packages/local/operations.mjs';
+import { OllamaProvider } from '../../packages/local/model-runtime.mjs';
 
 const help = `PIE digital-product studio
   node apps/studio/cli.mjs STATE_DIRECTORY COMMAND [input.json|-]
+  node apps/studio/cli.mjs --model-info MODEL
 
   demo       Run an isolated, complete synthetic lifecycle in a fresh directory.
   init       Set brand topic, audience and model (fixture or a local Ollama tag).
@@ -177,6 +179,12 @@ let studio;
 try {
   if (!dir || dir === '--help' || command === '--help') {
     console.log(help);
+  } else if (dir === '--model-info') {
+    if (!command || inputFile)
+      throw Error('Supply one installed local model tag');
+    console.log(
+      JSON.stringify(await new OllamaProvider().describe(command), null, 2)
+    );
   } else {
     if (!command || extra.length)
       throw Error('Expected state directory, command and optional JSON input');
@@ -258,21 +266,29 @@ try {
         }
         result = { status: 'bridge stopped' };
       }
-    } else if (command === 'work') result = await studio.work();
-    else if (command === 'serve') {
+    } else if (command === 'work' || command === 'serve') {
       const stop = new AbortController();
       const requestStop = () => stop.abort();
       process.on('SIGINT', requestStop);
       process.on('SIGTERM', requestStop);
-      while (!stop.signal.aborted) {
-        const last = studio.store.read().studio.lastBackup?.at ?? 0;
-        if (Date.now() - last >= 86400000) maintain(studio);
-        const job = await studio.work();
-        if (job.status !== 'idle') console.log(JSON.stringify(job));
-        if (job.status !== 'done')
-          await wait(2000, null, { signal: stop.signal }).catch(() => {});
+      try {
+        if (command === 'work')
+          result = await studio.work(undefined, { signal: stop.signal });
+        else {
+          while (!stop.signal.aborted) {
+            const last = studio.store.read().studio.lastBackup?.at ?? 0;
+            if (Date.now() - last >= 86400000) maintain(studio);
+            const job = await studio.work(undefined, { signal: stop.signal });
+            if (job.status !== 'idle') console.log(JSON.stringify(job));
+            if (job.status !== 'done')
+              await wait(2000, null, { signal: stop.signal }).catch(() => {});
+          }
+          result = { status: 'worker stopped' };
+        }
+      } finally {
+        process.off('SIGINT', requestStop);
+        process.off('SIGTERM', requestStop);
       }
-      result = { status: 'worker stopped' };
     } else if (command === 'export') result = exportChannel(studio);
     else if (command === 'inspect') {
       const p = studio.store.read().studio.products;

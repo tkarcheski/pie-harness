@@ -67,7 +67,10 @@ function money(value) {
 }
 
 export class Studio {
-  constructor(directory, { initialize = false, clock = Date.now } = {}) {
+  constructor(
+    directory,
+    { initialize = false, clock = Date.now, runtime } = {}
+  ) {
     requireValue(directory, 'Supply a runtime state directory');
     outsideGit(directory);
     this.dir = path.resolve(directory);
@@ -78,6 +81,7 @@ export class Studio {
       'Initialize this studio first'
     );
     this.store = new Store(this.file, clock);
+    this.runtime = runtime;
     this.engine = new Execution(this.store, timings);
     if (this.store.read().studio)
       this.store.change((s) => restoreTaskMetadata(s, s.studio.jobs));
@@ -523,7 +527,8 @@ export class Studio {
     };
   }
 
-  async work(write = writeDraft) {
+  async work(write = writeDraft, { signal } = {}) {
+    signal?.throwIfAborted();
     this.tick();
     const c = this.store.read().studio;
     const worker = {
@@ -543,8 +548,17 @@ export class Studio {
     const current = this.store.read().studio,
       job = current.jobs[claim.task];
     const control = new AbortController();
+    const active = signal
+      ? AbortSignal.any([signal, control.signal])
+      : control.signal;
     const remaining = Math.min(stepLimit, job.deadline - this.store.clock());
-    const deadline = setTimeout(() => control.abort(), Math.max(1, remaining));
+    const deadline = setTimeout(
+      () =>
+        control.abort(
+          new DOMException('Writer step timed out', 'TimeoutError')
+        ),
+      Math.max(1, remaining)
+    );
     const pulse = setInterval(() => {
       try {
         this.engine.heartbeat(worker, true);
@@ -581,10 +595,10 @@ export class Studio {
       }
       const answer = validateDraft(
         job.kind,
-        await write(job.model, job.kind, input, control.signal)
+        await write(job.model, job.kind, input, active, this.runtime)
       );
       requireValue(
-        !control.signal.aborted && this.store.clock() < job.deadline,
+        !active.aborted && this.store.clock() < job.deadline,
         'Writer deadline reached'
       );
       this.engine.complete(claim.task, session, (s, now, task, attempt) => {

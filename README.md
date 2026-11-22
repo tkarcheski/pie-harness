@@ -8,7 +8,7 @@ With Node.js 22.13 or later, run a standalone fixture:
 
 ```sh
 node apps/control-plane/local.mjs
-node --test tests/contracts.test.mjs tests/local.test.mjs tests/studio.test.mjs tests/communications.test.mjs
+node --test tests/*.test.mjs
 ```
 
 Run the complete studio demonstration with a fresh directory outside Git:
