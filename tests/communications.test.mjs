@@ -10,6 +10,7 @@ import {
   transcript
 } from '../packages/local/text-bus.mjs';
 import {
+  DiscordAgentTeam,
   DiscordTransport,
   connectDiscord,
   syncDiscord,
@@ -98,6 +99,113 @@ test('local dispatch and Discord cursor isolate history and deduplicate commands
     transcript(studio).some(
       (m) => m.sender === 'operations-agent' && m.topic === 'reply'
     )
+  );
+});
+
+test('three Discord applications share one inbox, route by sender and recover specialist sends', async (t) => {
+  const { studio, service } = await session(t);
+  const product = '100000000000000005',
+    support = '100000000000000006';
+  const identities = { op: bot, prod: product, help: support };
+  const sends = [];
+  let ambiguous = false;
+  let messages = [];
+  const options = {
+    guild,
+    channel,
+    token: 'op',
+    operators: [operator],
+    request: async (url, init) => {
+      const who = identities[init.headers.Authorization.slice(4)];
+      const route = new URL(url).pathname;
+      if (route.endsWith('/users/@me'))
+        return Response.json({ id: who, bot: true });
+      if (route.endsWith('/guilds/' + guild))
+        return Response.json({ id: guild });
+      if (route.endsWith('/channels/' + channel))
+        return Response.json({
+          id: channel,
+          guild_id: guild,
+          type: 0,
+          last_message_id: '100000000000000010',
+          permission_overwrites: [{ id: guild, type: 0, deny: '1024' }]
+        });
+      assert.ok(route.endsWith('/messages'));
+      if (init.method === 'GET') {
+        assert.equal(who, bot, 'Only the coordinator consumes commands');
+        return Response.json(messages);
+      }
+      const { content } = JSON.parse(init.body);
+      sends.push({ who, content });
+      if (ambiguous) throw new Error('lost receipt');
+      return Response.json({ id: '100000000000000022', channel_id: channel });
+    }
+  };
+  const tokens = { product: 'prod', support: 'help' };
+  const team = new DiscordAgentTeam(options, tokens, {
+    operations: bot,
+    product,
+    support
+  });
+  const say = (sender) =>
+    studio.store.change((s) =>
+      appendText(s.studio, { sender, text: 'test update' })
+    );
+  say('coordinator');
+  say('brand-worker');
+  say('product-worker');
+  say('campaign-worker');
+  const reply = say('reply-worker');
+  await connectDiscord(studio, team); // upgrade a single-bot binding, preserve unread work
+  for (let n = 0; n < 4; n++) await syncDiscord(studio, team);
+  ambiguous = true;
+  await assert.rejects(syncDiscord(studio, team), /interrupted/);
+  assert.deepEqual(
+    sends.map((x) => x.who),
+    [bot, product, product, product, support]
+  );
+  const receipt = {
+    id: '100000000000000030',
+    author: { id: product, bot: true },
+    channel_id: channel,
+    content: '[reply-worker] test update\n[pie:' + reply.id + ']'
+  };
+  messages = [receipt];
+  await syncDiscord(studio, team);
+  assert.equal(studio.store.read().studio.discord.intent.bot, support);
+  const human = {
+    id: '100000000000000032',
+    channel_id: channel,
+    author: { id: operator },
+    content: '!pie status'
+  };
+  messages = [
+    {
+      ...receipt,
+      id: '100000000000000031',
+      author: { id: support, bot: true }
+    },
+    human
+  ];
+  ambiguous = false;
+  await syncDiscord(studio, team);
+  await syncDiscord(studio, team);
+  assert.equal(studio.store.read().studio.discord.intent, null);
+  assert.equal(sends.length, 6);
+  assert.equal(sends.at(-1).who, bot);
+  assert.equal(
+    transcript(studio).filter((m) => m.externalId === human.id).length,
+    1
+  );
+  await assert.rejects(syncDiscord(studio, service), /all configured agents/);
+  await assert.rejects(connectDiscord(studio, service), /identity changed/);
+  await assert.rejects(
+    new DiscordAgentTeam(options, { ...tokens, support: 'prod' }).verify(),
+    /distinct bot/
+  );
+  await assert.rejects(
+    new DiscordAgentTeam(options, tokens, { product: support }).verify(),
+    /different product/
   );
 });
 

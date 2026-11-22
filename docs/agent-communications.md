@@ -31,7 +31,21 @@ Use a fresh directory for demo. For an existing initialized studio, begin at say
 
 The Windows helper prompts locally for the IDs and a hidden token. It verifies the account and channel before binding. It restores the caller's environment when it exits. It does not save the token. On restart rerun the helper or inject the secret from your vault. When running from the canonical checkout, add public/ to the script path.
 
-In a second terminal run `node apps/studio/cli.mjs $studio serve`. Send `!pie status` in the private channel. The bot replies with counts. Authorized operator IDs can also send `!pie ask <question>`; the worker queues the request and responds in text. Other people with channel access can post notes. Bot-authored messages are ignored as inbound commands to avoid loops. One bot displays the logical agent identity in each outbound message. Daily brand, product, campaign and support jobs emit updates automatically.
+In a second terminal run `node apps/studio/cli.mjs $studio serve`. Send `!pie status` in the private channel. The bot replies with counts. Authorized operator IDs can also send `!pie ask <question>`; the worker queues the request and responds in text. Other people with channel access can post notes. Bot-authored messages are ignored as inbound commands to avoid loops. Daily brand, product, campaign and support jobs emit updates automatically.
+
+### Separate Discord applications
+
+For a three-app rehearsal, install Operations, Product and Support in the same private channel. Operations reads incoming commands and needs Message Content Intent. Each specialist can send its own updates with the default intents. Give each bot permission to view the channel, send messages and read history.
+
+Start **one bridge** with `setup-discord.ps1 -StateDirectory $studio -AgentTeam -StartBridge`. It prompts for each bot token locally. On other platforms provide the coordinator token as above and the specialist tokens in `PIE_DISCORD_PRODUCT_TOKEN` and `PIE_DISCORD_SUPPORT_TOKEN`. To verify each token belongs to the intended registered application, set `PIE_DISCORD_OPERATIONS_APP_ID`, `PIE_DISCORD_PRODUCT_APP_ID` and `PIE_DISCORD_SUPPORT_APP_ID` to the corresponding application IDs.
+
+| Discord application | Messages it sends |
+| --- | --- |
+| Operations | Assignments, handoffs, status, incidents, operator notes and operations answers |
+| Product | Brand, product and campaign worker updates |
+| Support | Customer reply worker updates |
+
+All three identities share one transcript cursor. A pending send can be confirmed only by the bot that sent it or by operator reconciliation. To add specialist identities to an existing bridge, stop its previous process and run the helper with the same coordinator and channel. The bridge preserves its progress. After binding a specialist, supply that same bot on restart.
 
 ## Transport and recovery
 
