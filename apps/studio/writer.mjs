@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import { requireValue } from '../../packages/local/store.mjs';
+import {
+  OllamaProvider,
+  SingleTurnRuntime
+} from '../../packages/local/model-runtime.mjs';
 
 const shapes = {
   ops: ['body'],
@@ -105,35 +109,15 @@ export function validateDraft(kind, value) {
   return Object.fromEntries(keys.map((k) => [k, value[k].trim()]));
 }
 
-export async function writeDraft(model, kind, input, signal) {
+export async function writeDraft(model, kind, input, signal, runtime) {
+  signal?.throwIfAborted();
   if (model === 'fixture') return fixtureWriter(kind, input);
-  const post = async (endpoint, data) => {
-    const result = await fetch('http://127.0.0.1:11434/api/' + endpoint, {
-      method: 'POST',
-      redirect: 'error',
-      signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    requireValue(
-      result.ok,
-      'Local Ollama ' + endpoint + ' returned ' + result.status
-    );
-    return result.json();
-  };
-  const info = await post('show', { model });
-  requireValue(
-    !info.remote_model &&
-      !info.remote_host &&
-      info.details?.format &&
-      !/(?:^|[:-])cloud(?:$|[-:])/i.test(model),
-    'Choose an installed local model'
-  );
-  const reply = await post('chat', {
+  const agent = runtime ?? new SingleTurnRuntime(new OllamaProvider());
+  const reply = await agent.run({
     model,
-    stream: false,
+    signal,
     format: 'json',
-    options: { temperature: 0.3 },
+    temperature: 0.3,
     messages: [
       {
         role: 'system',
@@ -146,8 +130,11 @@ export async function writeDraft(model, kind, input, signal) {
       { role: 'user', content: JSON.stringify(input) }
     ]
   });
-  requireValue(reply.done === true, 'Local model did not finish');
-  return JSON.parse(reply.message.content);
+  try {
+    return JSON.parse(reply);
+  } catch {
+    throw Error('Writer returned invalid draft JSON');
+  }
 }
 
 // Original geometric mark with a reproducible palette and pattern per identity.
