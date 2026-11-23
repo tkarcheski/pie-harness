@@ -540,6 +540,7 @@ test('eBay sandbox adapter binds the reviewed remote terms, maps published and w
   let published = false,
     sends = 0,
     actualPrice = '12.00',
+    groupIds = [],
     containAfterInventory = false;
   const business = e.store.create('business', e.owner).id,
     actor = e.store.create('agent', e.owner, { business }).id;
@@ -603,6 +604,7 @@ test('eBay sandbox adapter binds the reviewed remote terms, maps published and w
         );
       return Response.json({
         sku: 'binoculars',
+        groupIds,
         product: { title: 'Synthetic binoculars' },
         condition: 'USED_GOOD'
       });
@@ -626,6 +628,9 @@ test('eBay sandbox adapter binds the reviewed remote terms, maps published and w
     resolveAccessToken: () => String(42),
     fetchImpl: fake
   });
+  groupIds = ['fixture-variant-group'];
+  await assert.rejects(adapter.inspect('123'), /single-SKU/);
+  groupIds = [];
   const { digest } = await adapter.inspect('123');
   e.ready();
   const { draft } = inputs();

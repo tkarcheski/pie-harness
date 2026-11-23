@@ -15,6 +15,7 @@ const conditionMap = {
 function amount(price) {
   check(
     ['USD', 'GBP', 'EUR', 'CAD', 'AUD'].includes(price?.currency) &&
+      typeof price.value === 'string' &&
       /^(0|[1-9][0-9]{0,9})(\.[0-9]{1,2})?$/.test(price.value),
     'Unsupported eBay currency or price'
   );
@@ -143,6 +144,7 @@ export class EbaySandboxOffers {
     );
     check(
       inventory.sku === offer.sku &&
+        !inventory.groupIds?.length &&
         !inventory.inventoryItemGroupKeys?.length &&
         offer.format === 'FIXED_PRICE',
       'Supply an existing single-SKU fixed-price offer'
