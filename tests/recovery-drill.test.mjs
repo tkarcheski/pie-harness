@@ -99,7 +99,24 @@ test(
         descriptor
       );
       assert.ok(rule && rule[1].includes('P'));
-      assert.equal(rule[3], sid);
+      if (rule[3].startsWith('S-')) {
+        assert.equal(rule[3], sid);
+      } else {
+        // Windows can serialize a built-in principal using an SDDL alias.
+        // Ask Windows to resolve the sole ACE to the current account name.
+        const account = execFileSync('whoami.exe', [], options)
+          .trim()
+          .toLowerCase();
+        const acl = execFileSync(
+          'icacls.exe',
+          [result.bundle],
+          options
+        ).toLowerCase();
+        assert.ok(
+          acl.includes(' ' + account + ':('),
+          'Backup ACL belongs to a different account'
+        );
+      }
     } else {
       assert.equal(fs.statSync(result.bundle).mode & 0o777, 0o700);
       for (const file of fs.readdirSync(result.bundle))
