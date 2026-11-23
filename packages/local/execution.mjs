@@ -1,7 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { authorize, payloadDigest } from './authority.mjs';
 import { insert, record, requireValue } from './store.mjs';
-import { raiseAlert, resolveAlerts } from './operations.mjs';
+import {
+  raiseAlert,
+  resolveAlerts,
+  resolveFormerTaskAlerts
+} from './operations.mjs';
 
 const tasks = (s) => Object.values(s.records).filter((r) => r.kind === 'task');
 function transition(s, t, status, reason, time) {
@@ -20,6 +24,7 @@ function transition(s, t, status, reason, time) {
   t.status = status;
   t.reason = reason;
   t.lastProgressAt = time;
+  resolveFormerTaskAlerts(s, t, time);
   if (['failed', 'blocked', 'needs-reconciliation'].includes(status))
     raiseAlert(s, t.owner, status, t.id, time, {
       task: t.id,
@@ -595,7 +600,7 @@ export class Execution {
       transition(s, t, 'done', 'Worker completed', now);
     });
   }
-  reconcile(owner, id, confirmed, recordRef, expectedIntent) {
+  reconcile(owner, id, confirmed, recordRef, expectedIntent, authorizeReceipt) {
     requireValue(
       typeof confirmed === 'boolean' &&
         typeof recordRef === 'string' &&
@@ -614,6 +619,7 @@ export class Execution {
         expectedIntent === undefined || t.pendingAction === expectedIntent,
         'Reconciliation intent changed'
       );
+      authorizeReceipt?.(s, now);
       finishEffect(s, t, confirmed, recordRef, now);
       return { task: id, status: t.status };
     });
