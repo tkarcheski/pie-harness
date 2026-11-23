@@ -74,22 +74,32 @@ test(
       false
     );
     if (process.platform === 'win32') {
-      const script = [
-        "$ErrorActionPreference = 'Stop'",
-        '$acl = [System.IO.Directory]::GetAccessControl($env:PIE_DRILL_TEST_BUNDLE)',
-        '$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
-        '$rules = $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])',
-        'if (!$acl.AreAccessRulesProtected -or @($rules).Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid) {exit 1}'
-      ].join('\n');
-      execFileSync(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', script],
-        {
-          env: { ...process.env, PIE_DRILL_TEST_BUNDLE: result.bundle },
-          timeout: 10000,
-          windowsHide: true
-        }
+      const options = { encoding: 'utf8', timeout: 5000, windowsHide: true };
+      const identity = execFileSync(
+        'whoami.exe',
+        ['/user', '/fo', 'csv', '/nh'],
+        options
       );
+      const sid = identity.match(/"(S-[0-9-]+)"\s*$/i)?.[1];
+      assert.ok(sid);
+      const aclFile = path.join(root, 'verified-acl.txt');
+      execFileSync(
+        'icacls.exe',
+        [result.bundle, '/save', aclFile, '/q'],
+        options
+      );
+      const descriptor = fs
+        .readFileSync(aclFile, 'utf16le')
+        .trim()
+        .split(/\r?\n/)
+        .at(-1);
+      // The DACL must be protected and grant full control to exactly this SID,
+      // inheritable by child files and directories. SDDL is locale independent.
+      const rule = /^D:([A-Z]*)\(A;(OICI|CIOI);FA;;;([^;)]+)\)$/.exec(
+        descriptor
+      );
+      assert.ok(rule && rule[1].includes('P'));
+      assert.equal(rule[3], sid);
     } else {
       assert.equal(fs.statSync(result.bundle).mode & 0o777, 0o700);
       for (const file of fs.readdirSync(result.bundle))
