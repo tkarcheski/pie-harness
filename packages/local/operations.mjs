@@ -1,4 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import {
+  changeIncident,
+  connectionDeadlines,
+  expiringConnections
+} from './connections.mjs';
 import { record, requireValue } from './store.mjs';
 
 const currencyCode = /^[A-Z]{3}$/;
@@ -104,7 +109,11 @@ const instructions = {
   blocked: 'Resolve the failed prerequisite or cancel the dependent task.',
   'needs-reconciliation':
     'Check the recipient and reconcile the pending intent before retry.',
-  connection: 'Check the connection, account grant and secret reference.'
+  connection: 'Check the connection, account grant and secret reference.',
+  'connection-expiry':
+    'Review renewal or revoke the expiring grant or account.',
+  'connection-incident':
+    'Review the incident evidence and authorize restoration when ready.'
 };
 
 export function raiseAlert(s, owner, code, subject, at, correlation = {}) {
@@ -144,6 +153,13 @@ export function resolveAlerts(s, owner, subject, time, codes) {
       (!codes || codes.includes(a.code))
     )
       Object.assign(a, { status: 'resolved', resolvedAt: time });
+}
+
+export function resolveFormerTaskAlerts(s, task, time) {
+  const obsolete = ['failed', 'blocked', 'needs-reconciliation'].filter(
+    (code) => code !== task.status
+  );
+  resolveAlerts(s, task.owner, task.id, time, obsolete);
 }
 export function acknowledge(store, owner, id) {
   return store.change((s, time) => {
@@ -208,7 +224,8 @@ export function auditView(store, owner) {
           'minutes',
           'limitMinor',
           'priority',
-          'alert'
+          'alert',
+          'incident'
         ]
           .filter((k) => Object.hasOwn(e, k))
           .map((k) => [k, e[k]])
@@ -222,6 +239,22 @@ export function auditView(store, owner) {
   }
   return {
     events,
+    incidents: (s.incidents ?? [])
+      .filter((i) => i.owner === owner)
+      .map((i) => ({
+        id: i.id,
+        account: i.account,
+        status: i.status,
+        reason: i.reason,
+        evidenceDigest: i.evidenceDigest,
+        openedAt: i.openedAt,
+        ...(i.approval && {
+          reviewDigest: i.approval.reviewDigest,
+          approvedAt: i.approval.approvedAt,
+          approvalExpiresAt: i.approval.expiresAt
+        }),
+        ...(i.restoredAt !== undefined && { restoredAt: i.restoredAt })
+      })),
     costsMinorByCurrency: costs,
     ownerMinutes: events.reduce(
       (n, e) => n + (e.type === 'owner-time' ? e.minutes : 0),
@@ -236,6 +269,79 @@ export function auditView(store, owner) {
 
 export function ownerCommand(engine, owner, command, input = {}) {
   switch (command) {
+    case 'connection-expiry':
+      return engine.store.change((s, now) => {
+        record(s, owner, 'owner');
+        const deadlines = connectionDeadlines(s, owner);
+        const current = new Map(
+          deadlines.map((row) => [row.subject, row.expiresAt])
+        );
+        const rows = expiringConnections(
+          deadlines,
+          now,
+          input.horizonMs ?? 86400000
+        );
+        // A shorter scan horizon is not evidence of renewal. Adopt the current
+        // deadline for legacy alerts whose original deadline was not recorded.
+        for (const alert of s.alerts ?? []) {
+          if (
+            alert.owner !== owner ||
+            alert.code !== 'connection-expiry' ||
+            alert.status === 'resolved'
+          )
+            continue;
+          const expiresAt = current.get(alert.subject);
+          if (
+            expiresAt === undefined ||
+            (alert.expiresAt !== undefined && alert.expiresAt !== expiresAt)
+          )
+            resolveAlerts(s, owner, alert.subject, now, ['connection-expiry']);
+          else alert.expiresAt = expiresAt;
+        }
+        for (const row of rows) {
+          const last = (s.alerts ?? []).find(
+            (a) =>
+              a.owner === owner &&
+              a.subject === row.subject &&
+              a.code === 'connection-expiry' &&
+              a.status !== 'resolved'
+          );
+          if (last?.expiryState !== row.state) {
+            if (last?.status === 'acknowledged') {
+              last.status = 'open';
+              delete last.acknowledgedAt;
+            }
+            raiseAlert(s, owner, 'connection-expiry', row.subject, now, {
+              expiryState: row.state,
+              expiresAt: row.expiresAt,
+              account: row.account
+            });
+          }
+        }
+        return rows;
+      });
+    case 'connection-suspend':
+    case 'connection-approve-restore':
+    case 'connection-restore':
+      return engine.store.change((s, now) => {
+        const item = changeIncident(s, owner, command, input, now);
+        const subject = 'incident:' + item.id;
+        if (item.status === 'restored')
+          resolveAlerts(s, owner, subject, now, ['connection-incident']);
+        else if (
+          !(s.alerts ?? []).some(
+            (a) =>
+              a.owner === owner &&
+              a.code === 'connection-incident' &&
+              a.subject === subject &&
+              a.status !== 'resolved'
+          )
+        )
+          raiseAlert(s, owner, 'connection-incident', subject, now, {
+            account: item.account
+          });
+        return item;
+      });
     case 'queue':
       return engine.inspect(owner);
     case 'audit':
@@ -275,6 +381,7 @@ export function restoreTaskMetadata(s, jobs) {
   for (const [id, job] of Object.entries(jobs || {})) {
     const task = s.records[id];
     if (!task || task.kind !== 'task') continue;
+    resolveFormerTaskAlerts(s, task, task.lastProgressAt ?? task.createdAt);
     if (task.deadline == null && Number.isSafeInteger(job.deadline))
       task.deadline = job.deadline;
     if (

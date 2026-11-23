@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { insert, record, requireValue } from './store.mjs';
 import { budgetGate, raiseAlert, resolveAlerts } from './operations.mjs';
+import { accountPaused, canUseAccount } from './connections.mjs';
 
 const refPattern = /^secret-ref:[a-zA-Z0-9._/-]+$/;
+const connectionReview = 'Check connection, grant and secret reference';
 const exact = (object, keys) =>
   Object.keys(object).every((key) => keys.includes(key));
 export const payloadDigest = (bytes) =>
@@ -39,12 +41,16 @@ export class Accounts {
   rotate(owner, id, ref) {
     requireValue(refPattern.test(ref), 'Expected opaque secret reference');
     this.store.change((state) => {
-      record(state, id, 'account', owner).secretRef = ref;
+      const account = record(state, id, 'account', owner);
+      account.secretRef = ref;
+      account.accessRevision = (account.accessRevision ?? 0) + 1;
     });
   }
   revoke(owner, id) {
     this.store.change((state, time) => {
-      record(state, id, 'account', owner).revoked = true;
+      const account = record(state, id, 'account', owner);
+      if (account.revoked) return;
+      account.revoked = true;
       state.ownerTasks.push({
         owner,
         account: id,
@@ -56,40 +62,72 @@ export class Accounts {
   // Only the trusted connector receives a resolved value. Provider and adapter
   // exceptions may contain credentials and must never reach a log or caller.
   async probe(owner, id, scope, provider, verify) {
-    const account = record(this.store.read(), id, 'account', owner);
-    try {
-      requireValue(
-        !account.revoked &&
-          account.expiresAt > this.store.clock() &&
-          account.scopes.includes(scope),
-        'Unavailable'
+    const first = this.store.read();
+    const account = record(first, id, 'account', owner);
+    if (!account.scopes.includes(scope)) return false;
+    const available = (state, now) => {
+      const current = record(state, id, 'account', owner);
+      return (
+        current.secretRef === account.secretRef &&
+        current.accessRevision === account.accessRevision &&
+        canUseAccount(state, current, scope, now)
       );
+    };
+    try {
+      requireValue(available(first, this.store.clock()), 'Unavailable');
       const secret = await provider.resolve(account.secretRef);
       requireValue(
         typeof secret === 'string' && secret.length > 0,
         'Unavailable'
       );
-      const current = record(this.store.read(), id, 'account', owner);
       requireValue(
-        !current.revoked &&
-          current.secretRef === account.secretRef &&
-          current.expiresAt > this.store.clock(),
+        available(this.store.read(), this.store.clock()),
         'Unavailable'
       );
       requireValue((await verify(secret)) === true, 'Unavailable');
-      this.store.change((s, time) =>
-        resolveAlerts(s, owner, id, time, ['connection'])
-      );
+      this.store.change((s, time) => {
+        requireValue(available(s, time), 'Unavailable');
+        for (const task of s.ownerTasks) {
+          if (
+            task.owner === owner &&
+            task.account === id &&
+            task.reason === connectionReview &&
+            (task.scope === scope || task.scope === undefined) &&
+            task.resolvedAt === undefined
+          )
+            task.resolvedAt = time;
+        }
+        const outstanding = s.ownerTasks.some(
+          (t) =>
+            t.owner === owner &&
+            t.account === id &&
+            t.reason === connectionReview &&
+            t.resolvedAt === undefined
+        );
+        if (!outstanding) resolveAlerts(s, owner, id, time, ['connection']);
+      });
       return true;
     } catch {
       this.store.change((state, time) => {
         raiseAlert(state, owner, 'connection', id, time);
-        state.ownerTasks.push({
-          owner,
-          account: id,
-          time,
-          reason: 'Check connection, grant and secret reference'
-        });
+        const reason = connectionReview;
+        if (
+          !state.ownerTasks.some(
+            (t) =>
+              t.owner === owner &&
+              t.account === id &&
+              t.reason === reason &&
+              t.scope === scope &&
+              t.resolvedAt === undefined
+          )
+        )
+          state.ownerTasks.push({
+            owner,
+            account: id,
+            scope,
+            time,
+            reason
+          });
       });
       return false;
     }
@@ -190,22 +228,14 @@ export function authorize(state, now, owner, r, task) {
   }
   const decide = (decision, reason) =>
     outcome(state, owner, now, r, decision, reason, task);
-  if (
-    state.pauses.includes('*') ||
-    state.pauses.includes(owner) ||
-    state.pauses.includes(account.id)
-  )
-    return decide('deny', 'Paused');
-  if (
-    account.revoked ||
-    account.expiresAt <= now ||
-    !account.scopes.includes(r.action)
-  )
+  if (accountPaused(state, account)) return decide('deny', 'Paused');
+  if (!canUseAccount(state, account, r.action, now))
     return decide('deny', 'Account scope unavailable');
   const approval = state.approvals.find(
     (a) =>
       a.owner === owner &&
       !a.used &&
+      (a.revision ?? 0) === (account.accessRevision ?? 0) &&
       a.expiresAt > now &&
       boundKeys.every((k) => a.request[k] === r[k])
   );
@@ -253,8 +283,7 @@ export class OwnerPolicy {
           'expiresAt'
         ]) &&
           actor.business === account.business &&
-          account.scopes.includes(grant.action) &&
-          !account.revoked &&
+          canUseAccount(state, account, grant.action, now) &&
           /^[A-Z]{3}$/.test(grant.currency) &&
           Number.isSafeInteger(grant.limitMinor) &&
           grant.limitMinor >= 0 &&
@@ -271,12 +300,22 @@ export class OwnerPolicy {
   approve(owner, request, expiresAt) {
     this.store.change((state, now) => {
       record(state, owner, 'owner');
-      validateRequest(state, owner, request);
+      const account = validateRequest(state, owner, request);
+      requireValue(
+        canUseAccount(state, account, request.action, now),
+        'Account scope unavailable'
+      );
       requireValue(
         expiresAt > now && Number.isSafeInteger(expiresAt),
         'Invalid approval expiry'
       );
-      state.approvals.push({ owner, request, expiresAt, used: false });
+      state.approvals.push({
+        owner,
+        request,
+        expiresAt,
+        revision: account.accessRevision ?? 0,
+        used: false
+      });
     });
   }
   revokeGrant(owner, id) {

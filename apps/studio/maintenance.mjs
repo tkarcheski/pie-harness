@@ -4,6 +4,7 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { requireValue } from '../../packages/local/store.mjs';
+import { ownerCommand } from '../../packages/local/operations.mjs';
 
 export function health(studio) {
   const status = studio.status();
@@ -23,6 +24,11 @@ export function health(studio) {
 }
 
 export function maintain(studio) {
+  ownerCommand(
+    studio.engine,
+    studio.store.read().studio.owner,
+    'connection-expiry'
+  );
   const before = health(studio);
   requireValue(
     before.integrity === 'ok',

@@ -1,0 +1,15 @@
+# Teams and connector conformance
+
+From the public checkout, run `node apps/connectors/conformance.mjs` for the built-in recipient. Pass a path to a separately implemented fixture module to qualify another connector. The command exits with a failure status on a contract mismatch. [Version 1 SDK](../packages/connectors/sdk.mjs)
+
+Export a `fixtureConnector({fault})` factory returning a fresh isolated recipient. Its manifest supplies `version: 1`, an opaque platform name matching account registration, and `idempotency: 'recipient-key'`. Implement asynchronous `send(bytes, {intent, idempotencyKey, signal})` and `reconcile(key, {signal})`. One key and byte sequence produce one effect and one stable receipt. Conflicting byte sequences under the same key must fail. Reconciliation returns `{state:'confirmed'|'absent', reference}` when supported by recipient evidence or `{state:'unknown'}` otherwise. Receipt and evidence references contain bounded opaque IDs.
+
+For conformance, provide `countEffects()` against the recipient and implement the factory fault modes `none`, `before-write` and `after-write`. These exercise a normal success, a dispatch interrupted before the effect, and a lost acknowledgment after the effect. Keep the fixture isolated from external recipients. For authorized effects, supply `connectorV1(adapter)` to the local execution engine's `dispatchEffect`, then use `reconcileEffect(engine, owner, taskId, adapter)` for unresolved attempts. Reconciliation checks the registered account platform and fences the update against the original intent.
+
+Recipient lookup uses the original action's account scope. The SDK checks account access before lookup and checks the same credential revision again when committing the receipt. An access change leaves the effect pending for authorized reconciliation.
+
+## Planner, executor and reviewer
+
+Use `submitTeam(store, owner, spec)` with a stable submission key, run ID, budget reference, input artifact reference and three role assignments. For each role, bind its existing agent ID and separately enrolled node ID. An operator can enroll three instances on one machine. Probe each worker for its `team.ROLE.NODE_ID` capability. Each task uses the original run deadline and the configured one-to-four attempts; the total job limit is one hour.
+
+Workers claim the run via `Execution.claim`. Use `teamPacket` with the current worker token and fence to read the input and upstream artifact references. Complete each step via `completeStage` with the output reference and SHA-256 digest. This commits the handoff and task completion together. A reviewer supplies an explicit accept or return disposition. Returned work stays in the recorded run; the owner can start another bounded run with revised inputs. A review disposition grants no external publishing or account rights. The trusted host owns the local store, grant controls and completion API. [Team implementation](../packages/connectors/team.mjs) · [Executable example and failure cases](../tests/connectors-team-sdk.test.mjs)

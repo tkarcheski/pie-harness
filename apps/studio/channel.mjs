@@ -7,6 +7,13 @@ import { Store, insert, requireValue } from '../../packages/local/store.mjs';
 import { payloadDigest } from '../../packages/local/authority.mjs';
 import { Execution, enqueueIn } from '../../packages/local/execution.mjs';
 import { brandMark, validateDraft, writeDraft } from './writer.mjs';
+import {
+  managedDraft,
+  checkDraftWorker,
+  authorizeProduct,
+  replaceDraft,
+  channelTick
+} from '../../packages/channel-ops/channel.mjs';
 
 const timings = { heartbeatMs: 60000, leaseMs: 45000 };
 const jobLimit = 3600000,
@@ -180,7 +187,7 @@ export class Studio {
     });
   }
 
-  product({ title, source, rightsConfirmed, priceMinor, faq }) {
+  product({ title, source, rightsConfirmed, priceMinor, faq, rights }) {
     title = text(title, 'title', 200);
     source = text(source, 'source material', 50000);
     money(priceMinor);
@@ -193,6 +200,7 @@ export class Studio {
     return this.store.change((s, now) => {
       const c = s.studio;
       requireValue(c.brand, 'Run the brand job first');
+      const controls = managedDraft(s, now, rights);
       const id = randomUUID();
       const task = addJob(
         s,
@@ -202,6 +210,7 @@ export class Studio {
         c.model
       );
       c.products[id] = {
+        ...controls,
         id,
         title,
         source,
@@ -239,6 +248,11 @@ export class Studio {
       p.reviewedAt = now;
       if (decision === 'revise') {
         const feedback = text(note, 'revision feedback');
+        requireValue(
+          !p.digest,
+          'Create a new product for revisions to an edition already released'
+        );
+        replaceDraft(s, p, now);
         const task = addJob(
           s,
           now,
@@ -257,6 +271,7 @@ export class Studio {
         p.task = task;
         return { product, task, status: p.status };
       }
+      authorizeProduct(s, p, now, true);
       p.status = 'available';
       p.digest = payloadDigest(p.draft.content);
       const task = addJob(s, now, 'campaign', { product }, c.model);
@@ -272,6 +287,7 @@ export class Studio {
         p.status === 'available',
         'Campaign requires an approved active product'
       );
+      authorizeProduct(s, p, now);
       return { task: addJob(s, now, 'campaign', { product }, c.model) };
     });
   }
@@ -296,6 +312,7 @@ export class Studio {
   tick() {
     this.store.change((s, now) => {
       const c = s.studio;
+      channelTick(s, now);
       for (const p of Object.values(c.products)) {
         if (p.status !== 'available' || !p.intervalMs || p.nextCampaignAt > now)
           continue;
@@ -328,7 +345,8 @@ export class Studio {
       }
       const p = item(c.products, product, 'product');
       requireValue(
-        ['available', 'retired'].includes(p.status),
+        ['available', 'retired'].includes(p.status) ||
+          (p.managedChannel && p.digest && p.status === 'review'),
         'Product support is not active'
       );
       const key = source + ':' + eventId;
@@ -420,6 +438,7 @@ export class Studio {
           paidMinor === p.priceMinor,
         'Check active product, currency and payment amount'
       );
+      authorizeProduct(s, p, now);
       const id = randomUUID();
       c.orders[reference] = {
         id,
@@ -427,6 +446,7 @@ export class Studio {
         buyer,
         currency,
         paidMinor,
+        ...(p.channelExperiment && { channelExperiment: p.channelExperiment }),
         observedAt: now,
         digest: p.digest,
         status: 'paid',
@@ -508,9 +528,11 @@ export class Studio {
   }
 
   status() {
-    const s = this.store.read(),
-      c = s.studio;
-    requireValue(c, 'Incomplete initialization');
+    const c = this.store.change((s, now) => {
+      requireValue(s.studio, 'Incomplete initialization');
+      channelTick(s, now);
+      return s.studio;
+    });
     return {
       brand: c.brand,
       products: Object.values(c.products).map((p) => ({
@@ -570,6 +592,12 @@ export class Studio {
     try {
       requireValue(remaining > 0, 'One-hour job deadline reached');
       let input = job.input;
+      if (job.kind === 'product')
+        checkDraftWorker(
+          this.store.read(),
+          item(current.products, input.id, 'product'),
+          this.store.clock()
+        );
       if (job.kind === 'campaign') {
         const product = item(current.products, input.product, 'product');
         requireValue(product.status === 'available', 'Product retired');
@@ -607,6 +635,7 @@ export class Studio {
           c.brand = { ...answer, mark: brandMark(answer.name, answer.story) };
         if (job.kind === 'product') {
           const p = c.products[job.input.id];
+          checkDraftWorker(s, p, now);
           p.draft = answer;
           p.status = 'review';
         }
@@ -616,6 +645,7 @@ export class Studio {
             c.products[product].status === 'available',
             'Product retired'
           );
+          authorizeProduct(s, c.products[product], now);
           c.chapter++;
           c.lastChapter = answer.chapter;
           for (const [kind, body] of [
