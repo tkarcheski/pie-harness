@@ -1,6 +1,8 @@
 # Connection incidents and recovery
 
-On a trusted workstation, run the Studio owner command against its state directory. Pass a JSON file after the command or a dash for standard input. Each command operates on the registered owner of that studio.
+## Inspect the account
+
+Use a trusted owner process on the workstation. Run `node apps/studio/cli.mjs STATE_DIRECTORY owner INPUT.json`. Put the command and its fields in the JSON file. Use `-` for standard input. The registered owner controls the account.
 
 | Command field | Other JSON fields | Result |
 | --- | --- | --- |
@@ -9,4 +11,10 @@ On a trusted workstation, run the Studio owner command against its state directo
 | connection-approve-restore | account, id, reviewDigest, expiresAt | Records the owner's decision for that specific incident and credential revision. Supply an absolute expiry in milliseconds within the next 15 minutes. |
 | connection-restore | account, id, reviewDigest | Consumes the matching approval, records the restoration and resolves its alert. Other open incidents, revocations and paused scopes still apply. |
 
-Run with `node apps/studio/cli.mjs STATE_DIRECTORY owner INPUT.json`. The trusted caller supplies the owner identity. Store original incident evidence with restricted access outside the project. The audit records reason codes, timestamps, account IDs and evidence digests. Rotating credentials or opening another incident invalidates outstanding restoration approvals. If a connector already sent a request, inspect its recipient receipt through the reconciliation workflow.
+## Restore access
+
+1. Store the incident evidence outside the project with restricted access. Record its SHA-256 digest.
+2. Suspend the affected account. The audit records the account ID, reason, timestamps and evidence digest.
+3. Review the incident and the current credential revision. Approve restoration for that incident. Rotating the credential or opening another incident invalidates the approval.
+4. Restore the account before the approval expires. Inspect any remaining incidents, revoked grants or paused scopes.
+5. If a connector sent a request before suspension, use the reconciliation workflow to check the recipient's receipt.

@@ -1,8 +1,12 @@
 # Bounded image and video jobs
 
-Run `node apps/connectors/media.mjs render DIRECTORY SPEC.json [source.png]` with FFmpeg on PATH, or set `PIE_FFMPEG_BIN` to its executable. Choose a private directory outside Git. The renderer accepts an original PNG or generates a test pattern. It produces a PNG image or H.264 fragmented MP4. The optional source PNG travels to FFmpeg over stdin and its digest is bound to the job.
+## Render an artifact
 
-Example image specification for a synthetic rehearsal:
+Install FFmpeg on `PATH`, or set `PIE_FFMPEG_BIN` to its executable. Choose a private output directory outside Git. Run `node apps/connectors/media.mjs render DIRECTORY SPEC.json [source.png]`.
+
+Supply an original PNG or use the generated test pattern. The worker sends a supplied PNG to FFmpeg through standard input and binds its digest to the job. The output is a PNG image or an H.264 fragmented MP4.
+
+Use this specification for a synthetic image test.
 
 ~~~json
 {
@@ -12,8 +16,18 @@ Example image specification for a synthetic rehearsal:
 }
 ~~~
 
-For a video use a new key, set `kind` to `video` and supply `seconds` from 1 through 30. Reuse the generated PNG as source to render a still clip. Each job records the input reference, rights reference, input digest, renderer build, format, dimensions, byte cap, timeout and original deadline. It accepts one to three attempts. Changing the specification requires a new key. A successfully completed retry checks the manifest and returns the original file reference.
+For a video, use a new key. Set `kind` to `video` and `seconds` to a value from 1 to 30. To make a still clip, supply the generated PNG as the source.
 
-From another local process, run `node apps/connectors/media.mjs cancel DIRECTORY KEY` to request cancellation, or `status DIRECTORY KEY` to inspect the current lease and attempts. Output streams into a private staging directory while the supervisor enforces the byte cap and elapsed deadline. On cancellation, the renderer terminates and partial output is removed. The completed file and its provenance manifest publish together under the job ID after format checks.
+The job record contains the input and rights references, input digest, renderer build, format, dimensions, byte limit, timeout and original deadline. Set one to three attempts. Use a new key if the specification changes. When you repeat a completed job, the worker verifies its manifest and returns the original file reference.
 
-After an unclean exit, `node apps/connectors/media.mjs recover DIRECTORY` verifies already published bundles and removes expired partial attempts. A resumable job retains its original deadline and attempt count. Rerun its identical render command when its state is ready. The regression suite kills a separate rendering process mid-write and verifies recovery using the same SQLite database. [Media supervisor](../packages/connectors/media.mjs) · [FFmpeg renderer](../packages/connectors/ffmpeg.mjs)
+## Check or cancel a running job
+
+Open another local process. Run `node apps/connectors/media.mjs status DIRECTORY KEY` to inspect the lease and attempts. Run `node apps/connectors/media.mjs cancel DIRECTORY KEY` to stop the renderer.
+
+The supervisor checks the byte limit and elapsed time while the renderer writes to a private staging directory. Cancellation removes partial output. After format checks, the worker publishes the complete file and provenance manifest together under the job ID.
+
+## Recover after a process stops
+
+Run `node apps/connectors/media.mjs recover DIRECTORY`. Recovery verifies published bundles and removes expired partial attempts. When the job is ready again, repeat the original render command. The job keeps its deadline and attempt count.
+
+The regression test terminates a separate renderer during a write. It verifies recovery from the same SQLite database. [Media supervisor](../packages/connectors/media.mjs) · [FFmpeg renderer](../packages/connectors/ffmpeg.mjs)

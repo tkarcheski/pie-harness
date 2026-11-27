@@ -2,7 +2,9 @@
 
 ## First checkout
 
-Install Node.js 22.13 or later with its bundled SQLite module. Clone the distribution into an empty directory. From its root run the following commands. The suite uses local fixtures and requires no account or cloud credentials.
+1. Install Node.js 22.13 or later with the bundled SQLite module.
+2. Clone the distribution into an empty directory. Open the directory that contains `apps` and `tests`.
+3. Run these commands. The suite uses local fixtures and needs no cloud account or credentials.
 
 ~~~sh
 node apps/control-plane/local.mjs
@@ -11,7 +13,7 @@ node apps/connectors/conformance.mjs
 node apps/resale/rehearsal.mjs
 ~~~
 
-For the studio experiment, choose a new runtime directory outside Git and follow [channel operations](channel-ops.md). The optional media renderer requires a local FFmpeg binary with PNG and H.264 support. Hosted jobs and private chat require the owner's separately installed connection. [Runtime adapters](adapters.md)
+4. For the Studio experiment, choose a new runtime directory outside Git. Follow the channel operations guide. Local media rendering requires FFmpeg with PNG and H.264 support. For hosted jobs or private chat, install the owner's separate connection. [Channel operations](channel-ops.md) · [Runtime adapters](adapters.md)
 
 ## Trust boundaries
 
@@ -32,8 +34,8 @@ For the studio experiment, choose a new runtime directory outside Git and follow
 
 ## Qualification and operating limits
 
-A profile becomes available for routing only after it satisfies the probe and capacity requirements. Physical accelerator and Unsloth measurements depend on access to the designated equipment. Each deployment needs its own measurements. [Qualification procedure](connectors-profiles.md)
+Qualify each physical deployment before routing work to it. Verify the model revision, serving runtime, device and measured capacity. Unsloth and accelerator measurements require access to that equipment. [Qualification procedure](connectors-profiles.md)
 
-The eBay adapter targets the Sandbox. The portable settlement desk consumes read-only observations supplied by the operator. The internal content experiment measures a generated edition against stated criteria. A live listing, purchase, publication or paid pilot requires an authorized account and a separate owner decision. [Resale desk](resale.md) · [Channel experiments](channel-ops.md)
+The eBay adapter targets the Sandbox. The settlement desk uses read-only observations supplied by the operator. The content experiment measures an edition against its stated criteria. Obtain a separate owner decision and an authorized account before a live listing, purchase, publication or paid pilot. [Resale desk](resale.md) · [Channel experiments](channel-ops.md)
 
-Report a suspected vulnerability through the [private reporting procedure](../SECURITY.md).
+Send suspected vulnerabilities through the private reporting procedure. [Security reporting](../SECURITY.md)

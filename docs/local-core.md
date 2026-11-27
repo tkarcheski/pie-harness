@@ -1,12 +1,18 @@
 # Controlled local execution
 
-The single-host implementation uses Node.js 22.13+ and its SQLite driver. Start with `node apps/control-plane/local.mjs`. It validates the versioned configuration before opening a database, enrolls a synthetic worker, executes one task and reports its verified checkpoint. All connectors are disabled. Pass a configuration filename or set PIE_CONFIG. The positional filename takes precedence. Set PIE_STATE_DB to a filesystem path outside the checkout for persistence. The default proof uses an in-memory store.
+## Check startup
+
+Use Node.js 22.13 or later and its bundled SQLite driver. Run `node apps/control-plane/local.mjs`. The fixture validates its versioned configuration, opens an in-memory database, enrolls a synthetic worker and runs one task. Check the printed checkpoint. All connectors are disabled for this check.
+
+For a custom configuration, pass the filename as the first argument or set `PIE_CONFIG`. The argument takes precedence. For persistent state, set `PIE_STATE_DB` to a path outside the checkout.
 
 ## Records and migration
 
-The store distinguishes owner, business, persona, agent, external account, channel, opportunity, experiment, run, task, attempt, action and artifact. Every record has a stable UUID, owner, UTC epoch-millisecond creation time and version. Parent references are type- and owner-checked. Attempts reference their task and node. Artifacts reference the producing attempt. The forecast lives on the opportunity. The task references its experiment and budget. Unknown channel economics may remain unset. An estimate uses minor-unit ranges, currency, horizon, review date and evidence references.
+The store represents owners, businesses, personas, agents, external accounts, channels, opportunities, experiments, runs, tasks, attempts, actions and artifacts. Each record has a stable UUID, owner, UTC creation time in epoch milliseconds and version.
 
-The single-host backend keeps a transactional state document in SQLite. BEGIN IMMEDIATE serializes competing writers. User version 1 migrations preserve execution records while adding policy, approval and intervention collections in version 2. This design targets a small local workspace. A replicated service or high-throughput deployment needs a separately reviewed persistence and authentication design.
+The store checks parent type and owner. An attempt references its task and node. An artifact references its producing attempt. The opportunity holds its forecast. A task references its experiment and budget. Unknown economics can stay unset. For an estimate, supply minor-unit ranges, currency, horizon, review date and evidence references.
+
+SQLite stores a transactional state document. `BEGIN IMMEDIATE` serializes competing writers. Migration from user version 1 to version 2 preserves execution records and adds policy, approval and intervention collections. The store targets a small local workspace. Before replication or high-throughput deployment, review persistence and authentication separately.
 
 ## Task transitions
 
@@ -21,18 +27,33 @@ The single-host backend keeps a transactional state document in SQLite. BEGIN IM
 | needs-reconciliation | Owner supplies recipient evidence | done if confirmed, otherwise queued or failed according to retry limit |
 | queued, running or blocked | Owner cancellation with no pending effect | canceled |
 
-A worker heartbeat reports health. A trusted supervisor records versioned capability probe evidence. Enrollment supplies a revocable node ID and secret token; the database holds its hash. The scheduler excludes unhealthy, stale, draining, unqualified and full nodes. Renewals stay inside the last heartbeat's freshness window. Recovery reaps expired claims before dispatch and returns the prior artifact reference under a new fence. A stale worker cannot commit, even if it resumes after replacement.
+### Replace an unavailable worker
+
+A worker sends a health heartbeat. A trusted supervisor records versioned capability probes. Enrollment issues a revocable node ID and secret token. The database stores the token hash.
+
+The scheduler excludes unhealthy, stale, draining, unqualified and full nodes. It limits lease renewal to the last heartbeat's freshness window. Before dispatch, recovery clears expired claims. The replacement worker receives the prior artifact reference and a new fence. A worker with the old fence cannot commit.
 
 ## Account and authority boundary
 
-The owner registers platform, owner, recovery owner, action scopes, expiry and an opaque secret reference. The development provider keeps synthetic values in memory; an operator-selected vault adapter implements async resolve(reference) and supplies the value only to a trusted connector. The account probe exposes a boolean result. It suppresses secret-bearing provider exceptions and creates actionable intervention records. Rotation changes the reference. Revocation and expiry stop access.
+1. Register the platform, owner, recovery owner, action scopes, expiry and opaque secret reference.
+2. For development, keep synthetic secrets in the in-memory provider. For a vault, implement asynchronous `resolve(reference)`. Deliver the secret only to a trusted connector.
+3. Inspect the account probe. It returns a boolean and records an intervention on failure. It suppresses provider errors that can contain secrets. Rotation changes the reference. Revocation and expiry stop access.
 
-The local store is trusted operator infrastructure. Agents receive case input or narrow worker operations. Keep database handles, owner-policy methods, and node enrollment secrets out of agent prompts. A future network service must authenticate those roles before exposing any methods.
+Keep the store on trusted operator infrastructure. Give agents case input or narrow worker operations. Exclude database handles, owner-policy methods and enrollment secrets from prompts. Authenticate each role before exposing these methods over a network.
 
-Effect proposals declare the agent, account, action, target object, canonical payload digest, currency, per-effect minor units and policy version. The dispatcher checks the SHA-256 digest of the exact serialized payload. Standing grants bind actor, account, action, currency, per-effect ceiling and validity window. An over-limit request requires owner escalation. An exact one-off approval binds all request fields and is consumed atomically when the intent is created. Every decision records allow, deny or require-owner. Global, owner and account pauses take precedence.
+### Authorize a write
 
-Before a paid effect can run, the owner sets an aggregate limit for its business, budget reference and currency. Dispatch commits the pending intent and reservation in one transaction before calling the connector. Confirming recipient evidence converts that reservation to a cost. An unknown outcome holds the reservation until the recipient can be checked. A verified absence releases it. If the task can retry, the same proposed effect carries its original idempotency key. Existing confirmed actions and pending reservations count toward the limit when an owner configures a budget on an older database.
+The proposal contains agent, account, action, target, canonical payload digest, currency, per-effect amount in minor units and policy version. The dispatcher calculates SHA-256 over the exact serialized payload.
 
-The [owner console commands](../apps/console/README.md) expose the queue, node activity, budgets, costs, owner time and redacted audit events.
+A standing grant binds actor, account, action, currency, per-effect ceiling and validity window. Escalate an over-limit request to the owner. Exact one-off approval binds every request field. The store consumes it atomically with intent creation. Each decision records allow, deny or require-owner. Global, owner and account pauses take precedence.
 
-The public tests correspond to the issue IDs. The recovery test kills a child after a simulated recipient writes a receipt and before local confirmation. On restart the scheduler withholds that task until reconciliation. The test verifies one receipt and no repeat dispatch.
+### Reserve and reconcile funds
+
+1. Set the aggregate limit for the business, budget reference and currency before a paid effect. For an older database, existing confirmed actions and pending reservations count toward the limit.
+2. At dispatch, the store commits the intent and reservation together before calling the connector.
+3. Check recipient evidence. A confirmed effect converts the reservation to a cost. Verified absence releases the reservation. Keep the reservation while the result is unknown.
+4. For an eligible retry, use the original idempotency key for the same effect.
+
+Inspect the queue, node activity, budgets, costs, owner time and redacted audit events with the owner console. [Owner console commands](../apps/console/README.md)
+
+The standalone tests map to issue IDs. The recovery test stops a child process after the simulated recipient writes a receipt and before local confirmation. On restart the scheduler holds the task for reconciliation. The test verifies a single receipt and no duplicate dispatch.

@@ -1,11 +1,20 @@
 # Measure a model on its serving device
 
-Run `node apps/connectors/qualify.mjs PROFILE.json TELEMETRY.json` on the serving machine or through a loopback forward to its API. The command sends one bounded text-generation request to an already advertised model. It prints one JSON row suitable for the private operator's capability matrix. An unqualified row produces exit code 2. Keep measurements outside the checkout.
+## Run the probe
 
-The profile identifies `runtime` (`unsloth` or `tenstorrent`), `device`, `model`, `revision`, `servingVersion` and loopback `origin`. Supply the actual deployed artifact revision and serving build from the operator's deployment record. If the catalog advertises a digest, it must match. An optional representative `contextSample` exercises the intended input size. Give a protected local server its key through `PIE_LOCAL_SERVING_KEY`. The transport uses the OpenAI-compatible model catalog and chat completions routes. [Unsloth inference](https://unsloth.ai/docs/basics/inference-and-deployment) · [Tenstorrent inference server](https://github.com/tenstorrent/tt-inference-server)
+Run `node apps/connectors/qualify.mjs PROFILE.json TELEMETRY.json` on the serving machine or through a loopback forward. The command sends one bounded text request to a model in the server catalog. It prints one JSON row for the operator's capability matrix. Exit code 2 means the model did not qualify. Save the measurements outside the checkout.
 
-Run device telemetry on the inference host and update the telemetry file atomically with `device`, `usedBytes`, `capacityBytes` and UTC epoch-millisecond `observedAt`. Both samples must be at most ten seconds old. Match the memory domain to the deployment, such as the selected accelerator's DRAM. Record the device metric source alongside the profile. Before/after used memory and capacity describe two samples. Transient peak memory requires a separate continuous sampler.
+1. Set `runtime` to `unsloth` or `tenstorrent`. Specify the `device`, `model`, `revision`, `servingVersion` and loopback `origin`.
+2. Get the artifact revision and serving build from the deployment record. A catalog digest must match the deployed digest. To exercise the intended input size, supply `contextSample`.
+3. If the service requires a key, set `PIE_LOCAL_SERVING_KEY`. The probe uses the OpenAI-compatible catalog and chat completions endpoints. [Unsloth inference](https://unsloth.ai/docs/basics/inference-and-deployment) · [Tenstorrent inference server](https://github.com/tenstorrent/tt-inference-server)
 
-Qualification checks model identity, a fresh challenge response, prompt and completion token counts, memory readings and wall-clock throughput. The verified envelope covers only the observed input and output sizes and operation. A model absent from the catalog produces an unsupported row. An unavailable service, denied access, missing telemetry or failed challenge carries its own reason. Code can repeat the probe for each serving build, device, model revision and representative input.
+4. Run the telemetry collector on the inference host. Replace the telemetry file atomically. Include `device`, `usedBytes`, `capacityBytes` and `observedAt` in UTC epoch milliseconds.
+5. Select the memory domain for the deployment, such as accelerator DRAM. Record the metric source. Both samples must be at most ten seconds old. To measure peak memory between samples, use a continuous sampler.
 
-Call `routes(matrix, job)` with current online device/model revisions and serving versions. The newest probe for each matching deployment supersedes older results. A fresh compatible observation can take another device's work if the preferred accelerator goes offline. Empty results leave the job pending for a compatible executor. Unit fixtures use `source: fixture`; ordinary routing accepts measured rows. Hardware-specific capacity, unsupported operations and performance require a run against the corresponding physical deployment. [Qualification and routing](../packages/connectors/profiles.mjs)
+## Read the result
+
+The probe checks model identity, a fresh challenge, token counts, memory and wall-clock throughput. A passing row covers the tested operation, input size and output size. A missing catalog model produces an unsupported row. Other failure reasons include an unavailable service, denied access, missing telemetry and a failed challenge. Repeat the probe for each build, device, model revision and representative input.
+
+Call `routes(matrix, job)` with the current online devices, model revisions and serving versions. The newest probe for a matching deployment takes precedence. If a preferred device goes offline, a fresh compatible deployment can take the job. If none qualify, the job stays pending.
+
+Fixtures use `source: fixture`. Normal routing uses measured rows. Verify device limits, unsupported operations and speed on the actual deployment. [Qualification and routing](../packages/connectors/profiles.mjs)

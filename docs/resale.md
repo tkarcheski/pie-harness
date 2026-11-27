@@ -1,12 +1,16 @@
 # Owned-item resale desk
 
-Run the complete synthetic sale from the distribution root with Node.js 24.
+## Verify a sale from intake to settlement
+
+Use Node.js 24. From the distribution root, run the synthetic sale.
 
 ~~~sh
 node apps/resale/rehearsal.mjs
 ~~~
 
-The rehearsal uses two temporary SQLite databases. It receives an owned item, reviews its evidence, prices it from dated completed sales, approves an exact listing, and loses the marketplace response after publication. It reopens the shop, reads the recipient's receipt, records the sale and shipment, and ends the listing. A partial refund and fee reduce the $22 sale to a matched $17.60 bank observation. The fixture uses a separate recovery lookup before sending further writes.
+The rehearsal uses two temporary SQLite databases. Follow the item through evidence review, pricing from dated completed sales and owner approval of the exact listing. The test recipient publishes the listing and the response is lost.
+
+On restart, the shop reads the recipient's receipt before sending further writes. It records the sale and shipment, then ends the listing. Check the payout. A partial refund and fee reduce the $22 sale to a matched $17.60 bank observation.
 
 ## Run an operator workspace
 
@@ -17,9 +21,13 @@ node apps/resale/cli.mjs DIRECTORY status
 node apps/resale/cli.mjs DIRECTORY queue
 ~~~
 
-Choose a private data directory outside Git. Supply a JSON input file or a dash for standard input. Use stable opaque identifiers and ISO UTC timestamps. Monetary amounts use integer minor units in the stated currency. The CLI binds its owner, agent and simulated eBay account once. Its recipient is a second local database. Back up both databases together with their writers stopped. The installed CLI requires no API keys.
+Choose a private directory outside Git. Supply input as a JSON file or use `-` for standard input. Use stable opaque IDs, ISO UTC timestamps and integer minor units in the stated currency.
 
-Only a trusted owner process should receive the review, exact approval and reconciliation interfaces. Protect both databases with operating-system access controls. Store photographs, provenance documents, bank records, tracking numbers, raw marketplace responses and customer communications in an access-controlled evidence store. Reference them with opaque handles such as `vault:sample-receipt`. Protect the mapping between each handle and its source. The desk validates reference syntax. The owner verifies the underlying evidence.
+The CLI binds the owner, agent and simulated eBay account once. Its recipient uses a second local database. Stop both writers and back up both databases together. The installed CLI needs no API key.
+
+Restrict the review, exact-approval and reconciliation interfaces to a trusted owner process. Protect both databases with OS access controls.
+
+Keep photos, provenance documents, bank records, tracking numbers, marketplace responses and customer communications in a restricted evidence store. Use opaque references such as `vault:sample-receipt`. Protect the reference map. The desk checks reference syntax. The owner verifies the evidence.
 
 ### Intake and drafts
 
@@ -30,7 +38,12 @@ Only a trusted owner process should receive the review, exact approval and recon
 | draft | eventId, listing id, itemId, currency, comparables and optional priceMinor. Use the same listing id to revise a draft. |
 | listing | listingId. Returns references, observation dates, the included range and missing-evidence flags. |
 
-Choose ownership from owned, uncertain and third-party. Supported conditions are new, like-new, good, fair, poor, parts and unknown. The matchKey identifies the particular product, variant, size or edition. Each comparable includes a unique sourceRef, observedAt, kind (sold or ask), matchKey, condition, currency and amountMinor. The range is the minimum and maximum of matching sales in the last 90 days. The default proposed price is their median. Three or more separate comparable records produce corroborated confidence. Fewer produce limited confidence, and zero leaves the range unpriced. Owner-supplied prices retain their evidence flags. A refreshed item inspection requires a new draft before publication. The classification for proceeds from these owned items is liquidity.
+### Check the pricing evidence
+
+1. Select ownership from `owned`, `uncertain` and `third-party`. Record condition as `new`, `like-new`, `good`, `fair`, `poor`, `parts` or `unknown`.
+2. Use `matchKey` to identify the product, variant, size or edition. For each comparable, provide a unique `sourceRef`, `observedAt`, `kind` (`sold` or `ask`), `matchKey`, condition, currency and `amountMinor`.
+3. Inspect the minimum, maximum and median of matching completed sales in the last 90 days. The proposed price defaults to the median. With at least three comparable records, confidence is corroborated. With one or two, it is limited. With zero, the range is unpriced.
+4. Check the missing-evidence flags even if the owner provides a price. After a new inspection, draft the listing again before publication. Classify proceeds from an owned item as liquidity.
 
 ### Marketplace writes
 
@@ -41,11 +54,22 @@ Choose ownership from owned, uncertain and third-party. Supported conditions are
 | submit-write | The same operationId, listingId and verb |
 | reconcile-write | operationId |
 
-The proposal binds the actor, seller account, operation ID, listing version, price and serialized payload digest. A write consumes exact owner approval and checks the current scoped account. One listing can have one pending operation. A repeated submission returns the saved outcome. A lost response leaves the write pending across restart. Use recipient readback for applied, verified absent or unknown. A verified absence permits a new operation ID and approval. An unknown result stays in the owner queue. Connector calls default to 15 seconds and accept a signal. A transport can set timeoutMs up to 15 minutes.
+The proposal binds the actor, seller account, operation ID, listing version, price and serialized payload digest. Submission consumes exact owner approval and checks the current account scope. Each listing supports one pending operation. An identical submission returns the saved outcome.
 
-The optional **eBay Sandbox** adapter lives in `packages/resale/ebay.mjs`. Applications may bind an existing owner, business, actor and rehearsal or sandbox account with `bindResaleDesk(store, scope)`. Use an Accounts record with platform `ebay-sandbox` and application scopes `ebay.read`, `ebay.publish` and `ebay.end` as required. Instantiate EbaySandboxOffers with the store, owner, account ID and a trusted resolveAccessToken(secretRef, signal) function. eBay's user authorization uses the sell.inventory scope for offer writes. The adapter targets only the eBay Sandbox origin and rejects redirects.
+If the response is lost, keep the pending write through restart. Use `reconcile-write` to check the recipient. A confirmed write completes the operation. Verified absence permits a new ID and a new approval. An unknown result stays in the owner queue.
 
-Prepare a single-SKU fixed-price offer in the sandbox with your seller policies, images and location. Call inspect(offerId), review its offer terms and inventory record, and supply its offerId and digest in draft.ebayOffer. The adapter verifies the approved remote snapshot, price, quantity, currency, condition and title immediately before publishing. Ending an offer verifies its current listing ID. An ambiguous state after a lost receipt remains pending. The transport supports two-decimal USD, EUR, GBP, CAD and AUD prices. This release verifies mocked protocol responses and a persistent synthetic recipient. A hosted sandbox-account certification requires its own authorized test seller. [eBay Inventory API and operation definitions](https://developer.ebay.com/api-docs/master/sell/inventory/openapi/3/sell_inventory_v1_oas3.json)
+Connector calls accept a cancellation signal. The default timeout is 15 seconds. A transport can set `timeoutMs` up to 15 minutes.
+
+### Connect an eBay Sandbox account
+
+1. Bind an existing owner, business, actor and rehearsal or sandbox account with `bindResaleDesk(store, scope)`.
+2. Register platform `ebay-sandbox` in Accounts. Use the application scopes `ebay.read`, `ebay.publish` and `ebay.end` as needed.
+3. Construct `EbaySandboxOffers` from `packages/resale/ebay.mjs` with the store, owner, account ID and a trusted `resolveAccessToken(secretRef, signal)` function. eBay offer writes require the `sell.inventory` user scope. The adapter permits the Sandbox origin and rejects redirects.
+
+4. Prepare a single-SKU fixed-price Sandbox offer. Include your seller policies, images and location. Run `inspect(offerId)` and review the offer terms and inventory record.
+5. Supply `offerId` and the inspected digest in `draft.ebayOffer`. Before publication, the adapter verifies the snapshot, price, quantity, currency, condition and title. Before ending an offer, it verifies the current listing ID.
+
+An ambiguous remote state remains pending. The transport supports two-decimal USD, EUR, GBP, CAD and AUD prices. The release tests use mocked protocol responses and a persistent synthetic recipient. Hosted account certification requires an authorized Sandbox test seller. [eBay Inventory API](https://developer.ebay.com/api-docs/master/sell/inventory/openapi/3/sell_inventory_v1_oas3.json)
 
 ### Fulfillment and owner work
 
@@ -60,7 +84,11 @@ Prepare a single-SKU fixed-price offer in the sandbox with your seller policies,
 | queue | Open owner handoffs, sorted by due time with overdue flags |
 | order-report | orderId. Returns shipment and case status, gross, fees, refunds and remaining unsettled gross. |
 
-An external order ID can arrive on multiple notifications. A line is counted once, and conflicting updates need review. Gross is the actual seller-attributable line amount across its quantity. Include buyer-paid delivery where it belongs in the seller payment. The eBay importer discards buyer identity fields, checks ship-by dates, and verifies each line sum. Unexplained totals, tax, promotion or refund adjustments require a reviewed normalized order with its original statement reference. Record the corresponding financial adjustments as settlement lines. A new shipment creates no customer message. A support case records an owner action for late-shipment, carrier-delay, damage, return or buyer-inquiry. Record physical tracking evidence and a resolution before closing the work. [eBay Fulfillment API definitions](https://developer.ebay.com/api-docs/master/sell/fulfillment/openapi/3/sell_fulfillment_v1_oas3.json)
+Use the same order and line IDs for repeated notifications. A line counts once. Send conflicting updates for review. Include all seller-attributable gross across the line quantity and any buyer-paid delivery that belongs in the seller payment.
+
+The eBay importer removes buyer identity fields, checks ship-by dates and verifies line sums. For unexplained totals, tax, promotion or refund adjustments, submit a reviewed normalized order with its original statement reference. Record the corresponding settlement lines.
+
+Recording a shipment creates no customer message. Open an owner case for `late-shipment`, `carrier-delay`, `damage`, `return` or `buyer-inquiry`. Before closure, record physical tracking evidence and the resolution. [eBay Fulfillment API](https://developer.ebay.com/api-docs/master/sell/fulfillment/openapi/3/sell_fulfillment_v1_oas3.json)
 
 ### Settlement
 
@@ -71,4 +99,7 @@ An external order ID can arrive on multiple notifications. A line is counted onc
 | bank-observation | eventId, unique bank transaction id, payoutId, signed amountMinor, currency, observedAt, evidenceRef, matchRef |
 | payout-report | payoutId |
 
-Use the recipient's identifiers for order, transaction, payout and bank observations. A bank match needs an explicit remittance reference. A matching amount on its own cannot identify a payout. Partial refunds across several statements may sum to the original order value. Reimporting the same transaction preserves its first assignment. A conflicting assignment, currency mismatch or refund above the order gross rolls back the transaction. Each payout compares the statement's net with the sum of sales less fees and refunds and with read-only bank observations. The owner queue surfaces unexplained differences until the underlying evidence matches. The order report shows outstanding proceeds even when a single payout already matched. These reports measure cash settlement. Profit measurement additionally requires verified cost and expense evidence.
+1. Use recipient IDs for the order, transaction, payout and bank observations. Match a bank record with an explicit remittance reference. An equal amount alone is insufficient.
+2. Record partial refunds against the original order. Across statements they can total up to the order gross. A duplicate transaction keeps its first assignment. A conflicting assignment, currency mismatch or excess refund rolls back the transaction.
+3. Compare the statement net, sales less fees and refunds, and the read-only bank observations. Resolve unexplained differences in the owner queue with matching evidence.
+4. Check `order-report` for outstanding proceeds even when an individual payout matches. These figures measure cash settlement. To calculate profit, verify costs and expenses.

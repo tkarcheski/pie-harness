@@ -1,10 +1,10 @@
 # Agent text communications
 
-The operations transcript is a durable local text room. Each entry carries a sender, room, message ID, topic, time, and optional task or external message ID. Workers announce assignments, completions, incidents and handoffs. An agent can read the transcript with a cursor and post text without knowing which transport mirrors the room. Voice and TTS are deferred. The bot sends ordinary text with TTS disabled.
+The local operations transcript keeps assignments, completions, incidents and handoffs across restarts. Each entry has a sender, room, message ID, topic and time. It can also reference a task or an external message. Agents read from a cursor and post text to the room. This distribution's bridge sends ordinary text with Discord TTS disabled.
 
 ## Simulate without Discord
 
-From the standalone root in PowerShell:
+Open PowerShell in the directory that contains `apps/studio`.
 
 ```powershell
 $studio = Join-Path $env:LOCALAPPDATA 'PIE-Comms-Practice'
@@ -15,29 +15,30 @@ node apps/studio/cli.mjs $studio work
 node apps/studio/cli.mjs $studio messages
 ```
 
-Use a fresh directory for demo. For an existing initialized studio, begin at say. A local assistant answers status questions from queue counts and the owner-review count. One question per sender may be pending. Normal messages are conversation data. An operations question cannot alter orders, approvals, spending, accounts or host configuration.
+Run `demo` in a fresh directory. For an initialized Studio, start with `say`. The assistant uses queue counts and the number of owner reviews to answer a status question. Each sender can have one pending question. Normal posts enter the transcript. An operations question grants no authority over orders, approvals, spending, accounts or host settings.
 
 ## Set up the private Discord room
 
-1. In Discord, use **Add a Server → Create My Own** (or choose a server you administer). Use a private server such as **PIE Operations** and a text channel such as **#agent-operations**. Keep membership invite-only.
-2. In channel permissions, explicitly **deny View Channel to @everyone**. Allow your operator role and the PIE bot to view the channel. Review any other role or member overrides. The bridge checks the server ID, text channel type, discovery setting and the explicit @everyone deny.
-3. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications). Use its bot user. In the **Bot** settings enable **Message Content Intent** so ordinary operations text is available. Keep the token in an owner-controlled secret manager. Use a bot token rather than a personal Discord account token.
-4. Configure **Guild Install** with the **bot** scope and **View Channel**, **Send Messages**, **Read Message History**. Use Discord's install link to add it to that server. The bridge needs no Administrator, Manage Roles, Manage Server or voice permissions. Grant the bot access to the private channel explicitly.
-5. In Discord's Advanced settings enable **Developer Mode**. Copy the server ID, channel ID and your own user ID. Run the following from the distribution root with the initialized state directory you chose:
+1. Create a server with **Add a Server → Create My Own**, or select one you administer. Keep membership invite-only. Create a private text channel such as **#agent-operations**.
+2. In channel permissions, deny **View Channel** to `@everyone`. Allow the operator role and the bot to view the channel. Inspect other member and role overrides. The bridge checks the server ID, text room type, discovery setting and explicit deny.
+3. Create a Discord application and use its bot user. In **Bot**, enable **Message Content Intent** for ordinary operations text. Keep the bot token in your secret manager. [Discord Developer Portal](https://discord.com/developers/applications)
+4. Under **Guild Install**, select the **bot** scope. Grant **View Channel**, **Send Messages** and **Read Message History**. Open the install link to add the bot to your server. Give it explicit access to the private room. The bridge runs without administrator, management or voice permissions.
+5. In Discord **Advanced** settings, enable **Developer Mode**. Copy the server ID, channel ID and your user ID. From the distribution root, start the helper with the initialized Studio directory.
 
 ```powershell
 .\apps\studio\setup-discord.ps1 -StateDirectory $studio -StartBridge
 ```
 
-The Windows helper prompts locally for the IDs and a hidden token. It verifies the account and channel before binding. It restores the caller's environment when it exits. It does not save the token. On restart rerun the helper or inject the secret from your vault. When running from the canonical checkout, add public/ to the script path.
+The Windows helper asks for the IDs and the token through a hidden prompt. It verifies the account and room before binding. It restores the calling shell's environment on exit. On restart, run the helper again or inject the token from your vault. When this distribution is staged inside a larger checkout, run the command from this distribution's root.
 
-In a second terminal run `node apps/studio/cli.mjs $studio serve`. Send `!pie status` in the private channel. The bot replies with counts. Authorized operator IDs can also send `!pie ask <question>`; the worker queues the request and responds in text. Other people with channel access can post notes. Bot-authored messages are ignored as inbound commands to avoid loops. Daily brand, product, campaign and support jobs emit updates automatically.
+6. In a second terminal, run `node apps/studio/cli.mjs $studio serve`. Send `!pie status` to the private room. Check the returned counts.
+7. From an authorized operator ID, send `!pie ask <question>`. The worker queues the question and posts its answer. Other members with room access can post notes. The bridge ignores commands from bots. Daily brand, product, campaign and support jobs post their updates automatically.
 
 ### Separate Discord applications
 
-For a three-app rehearsal, install Operations, Product and Support in the same private channel. Operations reads incoming commands and needs Message Content Intent. Each specialist can send its own updates with the default intents. Give each bot permission to view the channel, send messages and read history.
+Install Operations, Product and Support in the same private text room for a three-app rehearsal. Give each bot View Channel, Send Messages and Read Message History. Operations needs Message Content Intent for commands. Product and Support can send updates with default intents.
 
-Start **one bridge** with `setup-discord.ps1 -StateDirectory $studio -AgentTeam -StartBridge`. It prompts for each bot token locally. On other platforms provide the coordinator token as above and the specialist tokens in `PIE_DISCORD_PRODUCT_TOKEN` and `PIE_DISCORD_SUPPORT_TOKEN`. To verify each token belongs to the intended registered application, set `PIE_DISCORD_OPERATIONS_APP_ID`, `PIE_DISCORD_PRODUCT_APP_ID` and `PIE_DISCORD_SUPPORT_APP_ID` to the corresponding application IDs.
+Start one bridge. On Windows, run `setup-discord.ps1 -StateDirectory $studio -AgentTeam -StartBridge`. Enter each token at its local prompt. On another platform, supply the coordinator token and set `PIE_DISCORD_PRODUCT_TOKEN` and `PIE_DISCORD_SUPPORT_TOKEN`. To verify each registered app, set `PIE_DISCORD_OPERATIONS_APP_ID`, `PIE_DISCORD_PRODUCT_APP_ID` and `PIE_DISCORD_SUPPORT_APP_ID` to its application ID.
 
 | Discord application | Messages it sends |
 | --- | --- |
@@ -45,14 +46,20 @@ Start **one bridge** with `setup-discord.ps1 -StateDirectory $studio -AgentTeam 
 | Product | Brand, product and campaign worker updates |
 | Support | Customer reply worker updates |
 
-All three identities share one transcript cursor. A pending send can be confirmed only by the bot that sent it or by operator reconciliation. To add specialist identities to an existing bridge, stop its previous process and run the helper with the same coordinator and channel. The bridge preserves its progress. After binding a specialist, supply that same bot on restart.
+The three identities share one transcript cursor. The original sending bot or the operator must confirm a pending delivery. To add specialists, stop the existing bridge. Run the helper again with the same coordinator and room. The bridge keeps its progress. After you bind a specialist, supply that same identity on restart.
 
 ## Transport and recovery
 
-Discord is an optional adapter. The local studio and its local social advertising feed run without it. The connector uses API v10 HTTPS message history and message creation. It mirrors only the configured operations channel. Direct messages, other channels, attachments, historical exports and automatic mentions are excluded.
+The local Studio and its social ad feed can run independently of Discord. The bridge reads and sends messages through Discord API v10 over HTTPS. It mirrors the configured operations channel. It excludes direct messages, other rooms, attachments, historical exports and automatic mentions.
 
-For non-Windows operation supply PIE_DISCORD_GUILD_ID, PIE_DISCORD_CHANNEL_ID, optional comma-separated PIE_DISCORD_OPERATOR_IDS, and PIE_DISCORD_BOT_TOKEN through the process environment. Use discord-check, discord-connect, and discord-serve in that order. Keep bot tokens outside Git and outside the state database.
+On systems without the Windows helper, set `PIE_DISCORD_GUILD_ID`, `PIE_DISCORD_CHANNEL_ID` and `PIE_DISCORD_BOT_TOKEN` for the bridge process. For operator commands, set the optional comma-separated `PIE_DISCORD_OPERATOR_IDS`. Run `discord-check`, `discord-connect` and `discord-serve` in that order. Keep tokens outside Git and the state database.
 
-Binding starts at the current end of both transcripts. A durable remote cursor deduplicates ingress. A persisted outgoing intent, nonce and visible message identifier support delivery readback. On rate limiting the bridge honors the retry time. If Discord may have accepted a send, the bridge waits for its matching bot-authored receipt. Use discord-status for a pending ID; after checking the actual channel the owner may run discord-reconcile with that ID and an outcome of observed or confirmed-absent. The latter releases that message for retry. The adapter never retries an ambiguous send blindly.
+### Check an uncertain delivery
 
-Official references: [bot installation](https://discord.com/developers/docs/quick-start/getting-started), [channel permissions](https://docs.discord.com/developers/topics/permissions), [message API](https://docs.discord.com/developers/resources/message), and [rate limits](https://docs.discord.com/developers/topics/rate-limits).
+Binding starts at the current end of each transcript. The bridge saves the remote cursor to deduplicate incoming messages. For each send, it saves the intent, nonce and visible message ID. On a rate limit, it waits for Discord's retry time.
+
+1. If Discord may have accepted a send, check for the matching bot-authored receipt.
+2. Run `discord-status` to get the pending ID. Inspect the actual Discord room.
+3. Run `discord-reconcile` with that ID and `observed` or `confirmed-absent`. Only a verified absence releases the message for retry.
+
+[Discord bot installation](https://discord.com/developers/docs/quick-start/getting-started) · [Channel permissions](https://docs.discord.com/developers/topics/permissions) · [Message API](https://docs.discord.com/developers/resources/message) · [Rate limits](https://docs.discord.com/developers/topics/rate-limits)

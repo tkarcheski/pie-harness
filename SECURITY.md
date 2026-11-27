@@ -1,3 +1,3 @@
-# Security reporting
+# Report a security issue
 
-Use [Report a vulnerability](https://github.com/tkarcheski/pie-harness/security/advisories/new) to send a private report to the maintainer. Include affected versions, impact, and a sanitized description. Keep sensitive details out of public issues and pull requests.
+Send the maintainer a private report. Include the affected versions, observed impact and steps to reproduce the issue with sanitized data. Keep sensitive details out of public issues and pull requests. [Report a vulnerability](https://github.com/tkarcheski/pie-harness/security/advisories/new)

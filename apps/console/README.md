@@ -1,6 +1,10 @@
 # Local owner console
 
-From the standalone checkout, pass commands to an initialized Studio directory using `node apps/studio/cli.mjs STATE_DIRECTORY owner INPUT.json`. Use `-` to read JSON from standard input. The local owner console uses the business and owner associated with that directory.
+Use the local owner console from a trusted workstation. The command operates on the business and owner registered in the Studio state directory.
+
+1. Initialize a Studio directory.
+2. Save the command and its fields in a JSON file.
+3. Run `node apps/studio/cli.mjs STATE_DIRECTORY owner INPUT.json` from the distribution root. Use `-` in place of the file to read standard input.
 
 | JSON command | Additional fields | Result |
 | --- | --- | --- |
@@ -14,4 +18,4 @@ From the standalone checkout, pass commands to an initialized Studio directory u
 | `cancel` | `task` | Stops future dispatch. An uncertain effect still needs recipient evidence |
 | `reconcile` | `task`, `intent`, `confirmed`, `evidence` | Records a confirmed receipt or verified absence for the current intent. Use an opaque evidence reference |
 
-To inspect the queue, save `{"command":"queue"}` as the input file. To see alert IDs or inspect a budget, use `{"command":"audit"}`. These commands assume the operator already has trusted workstation access.
+For example, save `{"command":"queue"}` to inspect waiting work. To find alert IDs or check a budget, use `{"command":"audit"}`.

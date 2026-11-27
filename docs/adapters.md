@@ -1,10 +1,16 @@
-# Adapter boundaries
+# Adapter responsibilities
 
-- Model providers expose qualified inference profiles. Start with Ollama and qualify Unsloth serving profiles independently.
-- Agent runtimes manage bounded sessions, task handoffs, cancellation, and artifact references. Hosted integrations use supported account access.
-- Hardware resources expose verified capabilities, availability, and limits. A Tenstorrent executor is planned.
-- External-service connectors report execution capabilities and idempotency support. The control plane authorizes effects and reconciles unknown outcomes.
+| Adapter | Responsibility |
+| --- | --- |
+| Model provider | Report the serving model and qualified profile. Start with Ollama. Qualify each Unsloth deployment independently. |
+| Agent runtime | Bound each session, pass cancellation to the provider and return handoff or artifact references. Use supported sign-in for hosted accounts. |
+| Hardware resource | Report measured capabilities, availability and limits. A Tenstorrent executor is planned. |
+| External service | Report supported actions and idempotency. The control plane authorizes writes and reconciles uncertain outcomes. |
 
-The Studio uses `OllamaProvider` to inspect installed model metadata and send chat requests to the loopback Ollama service. Run `node apps/studio/cli.mjs --model-info MODEL` to see a model's reported format and capabilities without generating a response. Older servers may omit the capability list. The separate `SingleTurnRuntime` accepts a provider and caller cancellation signal, bounds the turn, and passes cancellation to the provider. Task-level evaluation measures whether a model completes the required work. See [Ollama model details](https://docs.ollama.com/api-reference/show-model-details).
+## Inspect a local model
 
-Keep adapter credentials out of requests and fixtures. Use synthetic conformance tests for capability mismatches, timeouts, ambiguous effects, and cancellation.
+Run `node apps/studio/cli.mjs --model-info MODEL` with the installed Ollama model tag. The command asks the loopback service for model metadata. It reports the format and any capabilities that the server returns. Older servers can omit capabilities. [Ollama model details](https://docs.ollama.com/api-reference/show-model-details)
+
+`SingleTurnRuntime` accepts a provider and a caller cancellation signal. It bounds the turn and forwards the signal. Use a task-level evaluation to check whether the model can complete the work.
+
+Keep credentials outside request payloads and fixtures. Test capability mismatches, timeouts, uncertain writes and cancellation with synthetic recipients.
