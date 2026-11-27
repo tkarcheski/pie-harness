@@ -1,9 +1,12 @@
-# Contributing
+# Contribute a change
 
-Use the issue forms for reproducible, sanitized reports. Include fixture-backed validation and update documentation when contracts change. Run the standalone tests from the repository root. Discuss versioning before introducing breaking contract changes.
+Use the issue form to describe a problem. Include steps that reproduce it with sanitized data. Add a fixture that verifies the fix. Update the guide if an interface changes. Discuss the version before changing an interface that existing callers use.
 
-## Distribution review
+## Review a distribution release
 
-This repository has independent Git history. Prepare a release from a clean branch based on its previous reviewed commit. Copy the reviewed distribution files into that checkout. Compare every addition, modification and removal with the previous public tree. Review workflow permissions, action revisions, dependency changes and generated output alongside the code.
-
-Run `node --test tests/*.test.mjs` from a fresh checkout with an empty runtime state directory. The tests use synthetic fixtures and local transports. Hosted checks run on public runners from this repository's workflow. Record the full commit ID and the passing run URL in the release review. Verify the merged commit's entire file tree against the reviewed candidate, including file modes and contents.
+1. Create a clean branch from the last reviewed public commit. The distribution has independent Git history.
+2. Copy the reviewed files into that checkout. Compare every addition, change and removal with the previous public tree.
+3. Inspect workflow permissions, action revisions, dependencies and generated output.
+4. Use a fresh checkout and an empty runtime state directory. Run `node --test "tests/*.test.mjs"` from its root. The suite uses synthetic fixtures and local transports.
+5. Check the public-runner results for this repository. Record the complete commit ID and the passing run URL.
+6. After merge, compare every file's contents and mode with the reviewed candidate.

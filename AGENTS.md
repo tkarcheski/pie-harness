@@ -1,3 +1,8 @@
 # Distribution instructions
 
-Keep this tree standalone. Use synthetic data and disabled or simulation-only examples. Avoid private imports and production credentials. Do not wire hosted CI to private sources or home nodes. Run the standalone tests and document the implementation status accurately.
+Keep this distribution usable on its own.
+
+- Use synthetic data in examples and tests. Disable external connectors or run them in simulation.
+- Keep production credentials and private imports outside this tree.
+- Run hosted CI against this distribution on public runners. Keep private sources and home nodes outside that workflow.
+- Run the standalone tests. Document which features work, which tests passed and which features still require implementation or verification.

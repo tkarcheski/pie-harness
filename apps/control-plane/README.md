@@ -1,3 +1,3 @@
-# Local control plane
+# Check the local control plane
 
-Run `node apps/control-plane/local.mjs` from the distribution root. The single-host fixture verifies startup, enrollment, dispatch and a completed task. See [controlled local execution](../../docs/local-core.md) for the state machine and trust boundaries.
+From the distribution root, run `node apps/control-plane/local.mjs`. The fixture validates startup, enrolls a synthetic worker and dispatches one task. Check the output for its verified checkpoint. [Task states and account controls](../../docs/local-core.md)

@@ -1,6 +1,8 @@
-# Operating the local digital-product channel
+# Operate the local digital-product studio
 
-Use Node.js 22.13 or newer. Run commands from the public distribution root. Node provides SQLite; the fixture writer needs no account, model, network, package installation or database service. The optional AI writer uses an already installed local model served by Ollama at 127.0.0.1:11434. The channel's social feed, ad placements and mailbox are local transports. Runtime files belong outside Git on operator-controlled storage.
+Install Node.js 22.13 or later. Open the directory that contains `apps/studio`. Node provides SQLite. The fixture writer runs offline without an account or additional packages.
+
+For AI writing, start Ollama on `127.0.0.1:11434` with an installed model. The Studio uses local transports for social posts, ad placements and mail. Store runtime files outside Git on storage you control.
 
 ## First run on Windows
 
@@ -11,20 +13,25 @@ node apps/studio/cli.mjs $studio status
 node apps/studio/cli.mjs $studio health
 ```
 
-Use a fresh directory for each demo. Inspect the Markdown edition under `deliveries` and the brand SVG, feed JSON and email files under `channel-export`. The demo explicitly uses deterministic fixture writing and synthetic orders. The local ad placement spends zero. A recorded order is an operator-supplied payment observation; confirm settlement with its own record.
+Use a fresh directory for each demo. Open the Markdown edition under `deliveries`. Inspect the brand SVG, feed JSON and email files under `channel-export`.
+
+The demo uses fixture text and synthetic orders. Its local ad placement costs zero. An order records a payment observation supplied by the operator. Verify settlement against a separate record.
 
 ## Operate your own local studio
 
-Set a new directory and use the same CLI for each command. Each input is a JSON file, or pass `-` to read JSON from stdin.
+Choose a new state directory. Keep that directory for later commands. Pass input as a JSON file or use `-` for standard input. At the prompt, enter an installed Ollama model tag or `fixture`.
 
 ```powershell
 $studio = Join-Path $env:LOCALAPPDATA 'PIE-Studio'
-'{"topic":"Sketchbook Practice","audience":"beginning illustrators","model":"qwen3:4b"}' |
+$model = Read-Host 'Installed Ollama model tag or fixture'
+@{ topic = 'Sketchbook Practice'; audience = 'beginning illustrators'; model = $model } | ConvertTo-Json -Compress |
   node apps/studio/cli.mjs $studio init -
 node apps/studio/cli.mjs $studio work
 ```
 
-Choose an installed local model tag or the literal value `fixture`. The worker checks the model's local metadata before submitting to Ollama. Each request has a 15-minute limit within the job's one-hour deadline. Failed jobs allow one retry. Run `serve` for continuous polling, or `work` to take one eligible job. Stop the worker with Ctrl+C. A restarted worker recovers expired leases. The owner can inspect each task's reason and attempt count through `status`.
+The worker checks the model's local metadata before calling Ollama. A request has a 15-minute limit. Each job has a one-hour deadline and allows one retry after failure.
+
+Use `work` for one eligible job. Use `serve` to poll continuously. Press Ctrl+C to stop. On restart, the worker recovers expired leases. Use `status` to inspect the task reason and attempt count.
 
 | Command | Input and result |
 | --- | --- |
@@ -42,14 +49,26 @@ Choose an installed local model tag or the literal value `fixture`. The worker c
 | export | Materializes brand artwork, feed and email files. Local delivery envelopes reference the immutable edition in the deliveries directory. |
 | health / maintain | Inspect node heartbeat, tasks requiring intervention, free disk and memory, database integrity and last backup. Maintain takes a consistent rolling SQLite snapshot and opens it for verification. |
 
-The worker can answer an exact owner-reviewed FAQ automatically using the approved answer. Other comments and email enter the owner queue. Generated prose is data, and cannot select the recipient, execute shell commands, approve refunds, change authority or purchase ads. Replies and local posts survive worker restarts in the same transaction as job completion.
+The worker can send the approved answer to an exact owner-reviewed FAQ. Other comments and email enter the owner queue. The store commits local posts and replies with job completion. Generated prose has no authority to select recipients, run shell commands, approve refunds, change grants or buy ads.
 
 ## Operator-provided VM
 
-Use a dedicated OS user and an operator-controlled state directory. For a Linux user service, place the distribution at `~/pie-harness`, initialize a studio at `~/.local/state/pie-studio`, and use the sample `apps/studio/pie-studio.service` with the user's systemd service manager. Adjust the paths to the installation and ensure the service user's PATH includes Node. The unit restarts a failed worker and allows an in-flight bounded task to finish during shutdown. No provisioning or privileged administration is required by the worker.
+1. Use a dedicated OS account and a state directory you control.
+2. For a Linux user service, install the distribution at `~/pie-harness`. Initialize a Studio at `~/.local/state/pie-studio`.
+3. Install `apps/studio/pie-studio.service` with the user's systemd service manager. Adjust the paths. Ensure the service account can find Node on `PATH`.
+4. Start the service. It restarts a failed worker and allows time for an active bounded task to finish at shutdown. The worker runs without privileged administration.
 
-While serving, the worker verifies a database snapshot at startup when due and at roughly daily intervals. Store the enrollment key separately in operator-controlled secure backup storage. To restore, stop the worker, copy the verified latest.sqlite into a fresh state directory as studio.sqlite, restore the matching worker.key with owner-only access and run health, then work or serve. Deliveries can be regenerated by replaying deliver against recorded orders. Periodically copy the database snapshot and key to secure off-machine storage for host-loss recovery. The integration suite restores a fresh studio and completes a pending campaign.
+### Back up and restore
+
+The running worker verifies a database snapshot at startup when due and roughly daily thereafter. Keep the matching enrollment key in secure, separate backup storage. Periodically copy the verified snapshot and key to protected off-machine storage.
+
+1. Stop the worker. Copy the verified `latest.sqlite` into a fresh state directory as `studio.sqlite`.
+2. Restore the matching `worker.key` with owner-only access.
+3. Run `health`. Start `work` or `serve` after a successful check.
+4. To regenerate deliveries, repeat `deliver` against recorded orders. The integration suite tests a fresh restore by completing a pending campaign.
 
 ## Acceptance evidence and scope
 
-Run `node --test tests/contracts.test.mjs tests/local.test.mjs tests/studio.test.mjs`. Tests include an actual terminated child process, retries, fencing, scope boundaries, duplicate delivery, source review, inbox replay, retirement, service health and database restore. The initial channel runs entirely within the local studio. Connecting a social network, buying placements, sending real email, processing live payments or deploying a VM each requires its own integration and owner authorization.
+Run `node --test tests/contracts.test.mjs tests/local.test.mjs tests/studio.test.mjs`. The suite terminates a worker process and checks retries, stale-worker fencing, account scopes, duplicate delivery, source review, inbox replay, retirement, health and restore.
+
+The demo runs locally. Live social publishing, paid ads, email, payments and VM deployment each require a separate integration and owner authorization.

@@ -1,6 +1,6 @@
 # Research and channel operations
 
-Use the channel desk to research an opportunity, compare its economics and run a measured local product release. It shares the SQLite database and worker queue used by the digital-product Studio. Studio creates the product, writes the edition, runs the campaign and serves observed orders. The desk records the evidence, rights, approvals, experiment limits and owner decisions that govern those actions.
+The channel desk shares the digital-product Studio's SQLite database and worker queue. Use the desk to research an opportunity, compare economics and authorize a measured local release. It records evidence, rights, approval, experiment limits and owner decisions. The Studio creates the product, writes the edition, runs the campaign and serves observed orders.
 
 ## Run the internal experiment
 
@@ -11,9 +11,11 @@ node apps/channel-ops/cli.mjs /path/to/new-state rehearse
 node apps/channel-ops/cli.mjs /path/to/new-state status
 ~~~
 
-The exercise generates a collection intake guide from original fixture material. It reads the generated Markdown and counts required fields against the prior edition. A complete run measures four of four fields against one of four, or a gain of 7,500 basis points in editorial coverage. It records a local approval, one maintenance observation, a continuation within the original caps and a final stop. The result includes the edition digest, costs and owner time. All accounts and commercial assumptions in this exercise are synthetic. No live publication, customer demand or revenue is inferred from the field check.
+The exercise generates a collection intake guide from original fixture material. It compares required fields in the generated Markdown with the previous edition. The expected result is four of four fields against one of four. This gives a gain of 7,500 basis points in editorial coverage.
 
-For ordinary work, initialize the workspace with the Studio CLI, then run the desk against that directory. Keep owner evidence and databases outside the repository. Both CLIs accept a JSON file after the command or a dash for standard input.
+Check the local approval, maintenance observation, continuation under the original caps and final stop. Inspect the edition digest, costs and owner time. The fixture uses synthetic accounts and commercial assumptions. Field coverage measures editorial quality. Customer demand and revenue require separate evidence.
+
+For ordinary work, initialize the state directory with the Studio CLI. Point the channel desk to the same directory. Keep owner evidence and databases outside Git. Both commands accept a JSON file. Use `-` for standard input.
 
 ~~~sh
 node apps/studio/cli.mjs /path/to/state init brand.json
@@ -22,9 +24,11 @@ node apps/channel-ops/cli.mjs /path/to/state research-open hypothesis.json
 node apps/channel-ops/cli.mjs /path/to/state opportunity-rank
 ~~~
 
-Each desk mutation needs a stable requestId. After an interrupted response, repeat the exact JSON using the same ID to get its original receipt. Conflicting reuse fails. Multiple processes serialize their writers through the Studio store. status, research-get and opportunity-rank take optional query fields and require no request ID. State inspection also settles elapsed timers. The Studio worker performs scheduled checks through its normal tick when serve is running.
+Give each operation that changes the desk a stable `requestId`. If the response is interrupted, repeat the exact JSON and ID to get the original receipt. Reusing the ID with different input fails. The Studio store serializes writers from multiple processes.
 
-An evidence object contains ref, observedAt and note. Use a publicly shareable HTTPS URL or a private opaque evidence:, studio: or document: locator. Keep secrets, personal details and access tokens out of references. Times accept Unix milliseconds or ISO timestamps with an explicit time zone.
+`status`, `research-get` and `opportunity-rank` accept optional query fields without a request ID. Inspecting state settles elapsed timers. While `serve` runs, the Studio worker checks scheduled work on its normal tick.
+
+An evidence object contains `ref`, `observedAt` and `note`. Use a shareable HTTPS URL or a private opaque reference with the `evidence:`, `studio:` or `document:` prefix. Exclude secrets, personal details and access tokens. Supply Unix milliseconds or an ISO timestamp with an explicit time zone.
 
 ## Research and ranking
 
@@ -40,11 +44,27 @@ An evidence object contains ref, observedAt and note. Use a publicly shareable H
 | opportunity-rank | Optionally filter category, specify weights and set maximum cashDays and ownerMinutes in limits. Results include the selected basis and source for each metric, missing fields, binding constraints, score and override. |
 | opportunity-override | Supply id, priority (1–100), and an owner reason. A null priority clears the override. The owner decision history is retained. |
 
-Source IDs identify the original source. A syndicated quote should use its original source ID. Distinct-ID and distinct-origin counts both have to meet the target. The desk uses the hostname of HTTPS evidence and the full opaque locator of local evidence. Repeated observations from the same source cannot independently establish support. Any contradictory finding closes the study as challenged. Remaining uncertainties, exhausted retries, elapsed duration or the owner's stop are retained with their reasons. The operator is responsible for interpreting claims against the criterion and identifying independent sources.
+### Count independent sources
 
-The five economic fields are net contribution in USD cents (contributionMinor), time to cash in days (cashDays), delivery reliability in basis points (reliabilityBps), growth in basis points (growthBps) and operator effort in minutes (ownerMinutes). Use a common observation horizon when comparing opportunities. Enter a null or omit an unknown field. A measured zero counts as evidence.
+Assign a stable ID to the original source. Give a syndicated quote the ID of its original publisher. Both the count of distinct IDs and the count of distinct origins must meet the target. For HTTPS, the desk uses the hostname. For local evidence, it uses the full opaque reference.
 
-Each metric uses its most recent dated observation if present, otherwise the forecast. The report preserves the original forecast and observations. Default weights are 35, 15, 20, 15 and 15 in the order above. Normalization caps each metric at 0–1. Contribution and growth reach full score at 10,000 cents and 10,000 basis points; losses and negative growth earn zero. Reliability is divided by 10,000. The time-to-cash and effort components decline linearly to zero at 90 days and 240 minutes. The weighted sum is reported on a 100-point scale. Missing inputs contribute zero and flag the opportunity for evidence collection. Eligible, incomplete and out-of-limit opportunities have separate priority tiers. Owner overrides reorder within a tier.
+Repeated observations from one source cannot establish independent support. A contradictory finding closes the study as challenged. The desk keeps the reason for uncertainty, retry exhaustion, deadline or an owner stop. The operator interprets claims against the criterion and checks source independence.
+
+### Compare the scores
+
+| Metric | Field | Unit | Default weight |
+| --- | --- | --- | --- |
+| Net contribution | `contributionMinor` | USD cents | 35 |
+| Time to cash | `cashDays` | Days | 15 |
+| Delivery reliability | `reliabilityBps` | Basis points | 20 |
+| Growth | `growthBps` | Basis points | 15 |
+| Operator effort | `ownerMinutes` | Minutes | 15 |
+
+Compare opportunities over the same observation horizon. Omit an unknown value or supply `null`. Record a measured zero as zero.
+
+For each metric, the desk uses the most recent dated observation or its forecast. The report keeps both. Each normalized component ranges from zero to one. Contribution reaches one at 10,000 cents. Growth reaches one at 10,000 basis points. Losses and negative growth earn zero. Reliability is divided by 10,000. Time to cash and effort decline linearly to zero at 90 days and 240 minutes.
+
+The weighted score uses a 100-point scale. Missing inputs contribute zero and flag the opportunity for evidence collection. Eligible, incomplete and out-of-limit opportunities use separate priority tiers. An owner override changes the order within its tier.
 
 ## Rights, release and maintenance
 
@@ -61,8 +81,18 @@ Each metric uses its most recent dated observation if present, otherwise the for
 | experiment-decide | Supply id, decision (stop or continue) and reason. Continue requires sufficient samples, the target and remaining caps. It retains the original deadline and budgets. |
 | health-check / status | Run an immediate check or inspect the latest health status, scheduled due time, open obligations, failed work, support queue, decision receipts and current experiment state. |
 
-After registration, run Studio product with rightsConfirmed and the list of rights document IDs in rights. Run Studio work to write the draft. Plan and approve the experiment in the channel desk, then release the reviewed edition with Studio review and decision approve. A registered channel enforces permissions in the Studio entry points, including rechecking the grant at campaign commit if a worker was still generating when it was revoked. Owner approvals, grants, document reviews, ranking overrides and final decisions are available only to the trusted local operator. The embeddable deskCommand defaults to the restricted agent role. Local database and CLI access are part of the trusted workstation boundary.
+### Release an edition
 
-The health check runs immediately on registration, on its configured interval when Studio serve is operating, or during workspace activity after downtime. It records missed intervals, outstanding support and failed work. Pending reviews, obligations due for renewal, expired rights and rolled-back experiments enter the core owner's alert queue. Review an item with new evidence to resolve the alert. When a grant expires, a required right fails, a cap is reached, time expires or the sampled result crosses the rollback threshold, the desk retires the local edition and disables further campaigns. Previously observed orders can still receive their recorded edition. Retiring a local edition has no effect on copies a recipient already received.
+1. Register the channel. Run Studio `product` with `rightsConfirmed` and the list of rights document IDs in `rights`.
+2. Run Studio `work` to produce a draft. Plan the experiment in the channel desk and obtain owner approval.
+3. Release the reviewed edition with Studio `review` and decision `approve`. A registered channel enforces its grants in the Studio entry points. The worker checks the grant again when committing a campaign, including when it was revoked during generation.
 
-Experiments expose the counted baseline, per-window outcomes, effort, incurred costs, and the difference in success rates in basis points. Actual costs above a cap are recorded and trigger a stop. External promotion, charges and live releases require separate authorized integrations. This local transport incurs zero publication spend.
+The trusted operator controls approvals, grants, document reviews, ranking overrides and final decisions. The embeddable `deskCommand` defaults to the restricted agent role. Protect local database and CLI access on the trusted workstation.
+
+### Handle maintenance alerts
+
+The desk checks health at registration, on the configured interval during Studio `serve`, and on workspace activity after downtime. It records missed intervals, outstanding support and failed work. Pending reviews, renewal obligations, expired rights and rolled-back experiments appear in the owner's alert queue. Resolve the item by reviewing new evidence.
+
+A grant expiry, failed right, reached cap, elapsed deadline or crossed rollback threshold retires the local edition and disables further campaigns. Previously observed orders can still receive their recorded edition. Recipients can retain copies they already received.
+
+Check the counted baseline, each observation window, effort, costs and the change in success rate in basis points. Costs above a cap still enter the ledger and trigger a stop. Local publication costs zero. External promotion, charges and live releases require separate authorized integrations.

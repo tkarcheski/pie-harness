@@ -1,9 +1,17 @@
 # Architecture
 
-The planned control plane uses TypeScript and the owner console uses React. Temporal executes durable workflows. PostgreSQL stores business records using logical databases and roles separated from Temporal. Node supervisors can invoke Python executors for inference and media dependencies. Begin with managed local artifact storage, followed by an S3-compatible adapter. Evaluate OpenBao as the first external secrets manager. Compose is the initial deployment model.
+## Current distribution
 
-Opportunity → Experiment → Workflow run → Task → Attempt is the domain hierarchy. Use economic evidence to prioritize opportunities and verified execution capabilities to route tasks. Surface node, agent, task, workflow, and channel status with explicit deadlines, budgets, retries, and stopping conditions.
+A single-host SQLite store runs the local task queue. Workers claim tasks, record attempts and produce artifacts. The business hierarchy is opportunity → experiment → workflow run → task → attempt. Economic evidence guides the choice of opportunity. Verified execution capabilities determine which worker can take a task. [Local control plane](local-core.md)
 
-Agents propose actions. Deterministic services enforce account scope, authority, budgets, and external effects. Agents cannot expand their grants or approve their own exceptions. External writes require persisted intents and atomic budget reservations. Use idempotency where available and reconcile unknown outcomes before retrying. Separate bank observation, transaction preparation, money movement, and administrative changes.
+Show the state of each node, agent, task, workflow and channel. Include the deadline, budget, retry limit and stop condition. Track forecasts, actual monetary contribution and owner time separately. Record liquidation proceeds separately from recurring income. Use observed outcomes to evaluate maintenance and growth. For legal work, retain the source, review, rights, obligation and renewal date.
 
-Track liquidation proceeds separately from recurring income. Keep forecasts, actual monetary contribution, and owner time separate. Measure maintenance and growth using outcome evidence. Legal operations track sources, reviews, rights, obligations, and renewal dates.
+## Authority
+
+Agents propose actions. Deterministic services check the account, authority and budget. Only the owner can expand a grant or approve an exception. Before an external write, persist the intent and reserve its budget atomically. Use idempotency when the recipient supports it. If the result is unknown, check recipient evidence before retrying. Keep bank observation, transaction preparation, money movement and administration separate.
+
+## Planned deployment
+
+The design calls for a TypeScript control plane, a React owner console and Temporal workflows. PostgreSQL would store business and Temporal data in separate logical databases with separate roles. Node supervisors would invoke Python executors for inference and media.
+
+The first deployment design uses Compose and managed local artifact storage. Later work includes an S3-compatible artifact adapter and evaluation of OpenBao as an external secrets manager.

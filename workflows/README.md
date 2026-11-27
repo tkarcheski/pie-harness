@@ -1,3 +1,6 @@
-# Generic workflows
+# Run a workflow
 
-Owned resale moves through evidence intake, draft, owner approval, listing, fulfillment, reconciliation, and maintenance. Research batches use explicit evidence requirements and stop rules. The initial workflow fixture supports simulation only.
+- For an owned item, rehearse intake, evidence review, approval, listing, fulfillment and settlement. [Resale workflow](../docs/resale.md)
+- For a channel experiment, set the evidence requirements and stop rules before the research batch. [Research and maintenance](../docs/channel-ops.md)
+
+The initial workflow fixture runs in simulation.
