@@ -30,7 +30,7 @@ node apps/resale/rehearsal.mjs
 1. Build the candidate from the reviewed distribution allowlist in the source workspace. Inspect changed paths, file modes, imports, examples, dependency changes and hosted workflow permissions. Exclude local runtime state at this step.
 2. Apply the candidate on a branch from the previous public main commit in the independent distribution history. Compare the entire staged tree with the candidate. Record the full commit ID.
 3. Re-clone the proposed distribution and run the first-checkout commands. Exercise the studio, cancellation, ambiguous-effect recovery, scoped revocation and a snapshot restore. Keep real wall-clock recovery measurements separate from fast CI tests. [Operated drill](recovery-drill.md)
-4. Run the standalone test matrix on Linux and Windows. Review both jobs at the proposed head. After merge verify the resulting tree against the same allowlist and retain the merge hash, CI link, result counts and remaining gaps in the release record.
+4. Run the standalone test matrix on Linux and Windows. Review both jobs at the proposed head. After merge, verify the resulting tree against the same allowlist. Record the merge hash, CI link, result counts and remaining gaps.
 
 ## Qualification and operating limits
 
