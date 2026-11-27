@@ -427,8 +427,18 @@ test('PIE-003 dependencies, cycles, failure propagation and legal transitions', 
   execution.fail(
     first.id,
     { ...worker, fence: claim.fence },
-    'Fixture verification failed'
+    'Fixture verification failed',
+    { stage: 'validation', code: 'INVALID_OUTPUT' }
   );
+  const failedState = store.read();
+  assert.deepEqual(failedState.records[claim.attempt].failure, {
+    message: 'Fixture verification failed',
+    stage: 'validation',
+    code: 'INVALID_OUTPUT'
+  });
+  const failureEvent = failedState.events.find(e => e.task === first.id && e.to === 'failed');
+  assert.equal(failureEvent.attempt, claim.attempt);
+  assert.equal(failureEvent.reason, 'Fixture verification failed');
   assert.deepEqual(
     execution.inspect(scope.owner).tasks.map((t) => t.status),
     ['failed', 'blocked', 'blocked']

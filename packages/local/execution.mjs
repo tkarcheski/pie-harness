@@ -570,7 +570,7 @@ export class Execution {
       return { intent: decision.intent, status: 'pending' };
     });
   }
-  fail(id, worker, reason) {
+  fail(id, worker, reason, diagnostic = {}) {
     requireValue(
       typeof reason === 'string' && reason.trim(),
       'Provide a failure reason'
@@ -579,13 +579,14 @@ export class Execution {
       const t = record(s, id, 'task');
       const a = attemptFor(s, t, worker, now);
       a.endedAt = now;
+      a.failure = { ...diagnostic, message: reason };
       delete t.lease;
       const next = t.pendingAction
         ? 'needs-reconciliation'
         : t.attempts > t.retryLimit
           ? 'failed'
           : 'queued';
-      transition(s, t, next, 'Worker reported failure', now);
+      transition(s, t, next, reason, now);
       settle(s, now);
     });
   }
